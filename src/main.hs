@@ -212,6 +212,63 @@ scheme4_6 = (6, 4, Repl 0
     )
     )
 
+scheme4_7 = (7, 4, Repl 0
+    (Repl 6
+        (Repl 4 (Var A) (Var B))
+        (Repl 3 (Var B) (Var C0))
+    )
+    (Repl 5
+        (Repl 2 (Var C0) (Var C1))
+        (Repl 1 (Var C1) (Var A))
+    )
+    )
+
+scheme4_8 = (8, 4, Repl 0
+    (Repl 6
+        (Repl 4 (Var A) (Var B))
+        r3
+    )
+    (Repl 7
+        (Repl 5
+            (Repl 2 (Var C0) (Var C1))
+            (Repl 1 (Var C1) (Var A))
+        )
+        r3)
+    )
+    where r3 = Repl 3 (Var B) (Var C0)
+
+scheme4_8_2 = (8, 4, 
+    Repl 0
+        (Repl 7
+            (Repl 6 
+                (Repl 5 r1 r2)
+                r3
+            )
+            r4
+        )
+        r2
+    )
+    where r1 = Repl 1 (Var A)  (Var B)
+          r2 = Repl 2 (Var B)  (Var C0)
+          r3 = Repl 3 (Var C0) (Var C1)
+          r4 = Repl 4 (Var C1) (Var A)
+
+scheme4_8_3 = (8, 4, 
+    Repl 0
+        (Repl 7
+            (Repl 6 
+                (Repl 5 r1 r2)
+                r3
+            )
+            r4
+        )
+        r3
+    )
+    where r1 = Repl 1 (Var A)  (Var B)
+          r2 = Repl 2 (Var B)  (Var C0)
+          r3 = Repl 3 (Var C0) (Var C1)
+          r4 = Repl 4 (Var C1) (Var A)
+
 scheme4_10 = (10, 4, Repl 10
     (Repl 9
         (Repl 8 
@@ -276,6 +333,15 @@ eqClass4 = V.map smallestP4 (V.enumFromN 0 (2^16))
 
 eqClasses4 :: Vector FuncId
 eqClasses4 = V.uniq $ V.modify V.Algorithms.Intro.sort eqClass4
+
+s4_6res, s4_7res, s4_8res, s4_8_2res :: Vector (FuncId, Cost)
+s4_6res = allResults scheme4_6 allCombs -- 1129
+s4_7res = allResults scheme4_7 allCombs -- 1737  (of which 667 are not in s4_6res)
+
+s4_8res = allResults scheme4_8 allCombs -- 3224  (turns out this contains all circuits obtainable using s4_6 and s4_7)
+s4_8_2res = allResults scheme4_8_2 allCombs -- 3642 (of which 3124 are in common in scheme 4_8)
+--union of s4_8 and s4_8_2 is 3742
+--intersection is therefore 3124
 
 combineResults :: [Vector (FuncId, Cost)] -> Vector (FuncId, Cost)
 combineResults rs = V.fromList $ remDup sorted 
