@@ -1,0 +1,5 @@
+src/main
+**/*.hi
+**/*.o
+dist-newstyle
+spec.pdf

@@ -1,0 +1,4 @@
+cradle:
+  cabal:
+    - path: "src/main.hs"
+      component: "coursework2:exe:coursework2"

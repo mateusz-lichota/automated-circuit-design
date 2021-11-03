@@ -1,0 +1,4 @@
+packages: coursework2.cabal
+
+program-options
+  ghc-options: -threaded -O3
