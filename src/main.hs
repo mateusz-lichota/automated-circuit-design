@@ -277,9 +277,16 @@ eqClass4 = V.map smallestP4 (V.enumFromN 0 (2^16))
 eqClasses4 :: Vector FuncId
 eqClasses4 = V.uniq $ V.modify V.Algorithms.Intro.sort eqClass4
 
-s4_6res, s4_10res :: Vector (FuncId, Cost)
-s4_6res = allResults scheme4_6 allCombs
-s4_10res = allResults scheme4_10 allCombs
+combineResults :: [Vector (FuncId, Cost)] -> Vector (FuncId, Cost)
+combineResults rs = V.fromList $ remDup sorted 
+    where
+        sorted = V.toList $ V.modify V.Algorithms.Intro.sort concatenated
+        concatenated = foldl1 (V.++) rs
+
+remDup :: Eq a => [(a, b)] -> [(a, b)]
+remDup [] = []
+remDup [x] = [x]
+remDup (x:y:xs) = if fst x == fst y then remDup (x : xs) else x : remDup (y:xs)
 
 main :: IO ()
 -- main = print $ length $ allFuncs (allResults scheme4_1 allCombs) 4
