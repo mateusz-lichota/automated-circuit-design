@@ -1,18 +1,35 @@
-import Data.Maybe (fromJust, Maybe, fromMaybe, isJust)
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# language BangPatterns #-}
+
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# language BangPatterns #-}
+import Data.Maybe (fromJust, Maybe, fromMaybe, isJust, catMaybes)
 import Data.List (intercalate, sort, nub, groupBy, permutations, group)
-import Data.Bits (Bits (shiftR, shift, testBit), (.&.), (.|.), xor, complement, zeroBits, shiftL, bit)
+import Data.Bits (Bits (shiftR, shift, testBit), (.&.), (.|.), xor, complement, zeroBits, shiftL, bit, popCount)
+import qualified Data.Vector as V
+import Data.Vector (Vector)
 
-import Control.DeepSeq
+import Test.QuickCheck as QC (quickCheck, (==>), Property)
+import Numeric (showHex)
 
-import qualified Data.Vector.Unboxed as V
-import qualified Data.Vector as VB
-import Data.Vector.Unboxed (Vector)
 
-import Data.Vector.Algorithms.Intro as V.Algorithms.Intro (sort)
+import qualified Data.Vector.Algorithms.Intro as V (sort, sortBy)
 
-import Control.Parallel.Strategies (using, parListChunk, rdeepseq, rpar)
+import Dags (genDags, Dag, DagNode (N, Inp))
+
 
 data Var = A | B | C1 | C0 deriving (Show, Eq)
+allVars = [C1, C0, A, B]
+
+instance Ord Var where
+    compare A x = if x == A then EQ else LT
+    compare B B = EQ
+    compare B C0 = LT
+    compare B C1 = LT
+    compare C0 C1 = LT
+    compare x y = if x == y then EQ else GT
+
+
 
 data Gate = And | Nand | Or | Nor | Xor | Xnor | NotA | NotB | JustA | JustB | TT | FF deriving (Eq, Show)
 type GateEnv = Vector GateNo
@@ -20,10 +37,7 @@ type GateNo = Int
 
 allGates = [And, Nand, Or, Nor, Xor, Xnor, NotA, NotB, JustA, JustB, TT, FF]
 
-gatesToUse :: Vector GateNo
-gatesToUse = V.fromList [0, 1, 2, 3, 3, 5, 6, 8]
 
-onlyNand = [Nand, JustA, JustB, TT, FF]
 
 type Cost = Int
 type FuncId = Int
@@ -45,20 +59,23 @@ cost FF = 0
 
 data Exp = BinApp Gate Exp Exp
          | Repl Int Exp Exp
-         | Not  Exp 
-         | Var  Var 
+         | Not  Exp
+         | Var  Var
          | T
          | F
         deriving (Eq)
 type VarEnv = [(Var, Int)]
 
+instance Ord Exp where
+    compare x y = EQ
+
 instance Show Exp where
-    show (BinApp And  e1 e2) = show e1 ++ " * " ++ show e2
-    show (BinApp Nand e1 e2) = show (Not (BinApp And e1 e2))
-    show (BinApp Or   e1 e2) = "(" ++ show e1 ++ " + " ++ show e2 ++ ")"
-    show (BinApp Nor  e1 e2) = show (Not (BinApp Or e1 e2))
-    show (BinApp Xor  e1 e2) = show e1 ++ " ⊕ " ++ show e2
-    show (BinApp Xnor e1 e2) = show (Not (BinApp Xor e1 e2))
+    show (BinApp And  e1 e2) = "(" ++ show e1 ++ " and " ++ show e2 ++ ")"
+    show (BinApp Nand e1 e2) = "(" ++ show e1 ++ " nand " ++ show e2 ++ ")"
+    show (BinApp Or   e1 e2) = "(" ++ show e1 ++ " or " ++ show e2 ++ ")"
+    show (BinApp Nor  e1 e2) = "(" ++ show e1 ++ " nor " ++ show e2 ++ ")"
+    show (BinApp Xor  e1 e2) = "(" ++ show e1 ++ " xor " ++ show e2 ++ ")"
+    show (BinApp Xnor e1 e2) = "(" ++ show e1 ++ " xnor " ++ show e2 ++ ")"
     show (BinApp JustA e1 e2) = show e1
     show (BinApp JustB e1 e2) = show e2
     show (BinApp NotA e1 e2) = show (Not e1)
@@ -66,9 +83,7 @@ instance Show Exp where
     show (BinApp TT e1 e2) = "1"
     show (BinApp FF e1 e2) = "0"
     show (Var v)      = show v
-    show (Not (Var v))= show v ++ "'"
-    show (Not (BinApp Or e1 e2))= show (BinApp Or e1 e2) ++ "'"
-    show (Not e)      = "(" ++ show e ++ ")'"
+    show (Not v)      = show v ++ "'"
     show (Repl x e1 e2) = "(" ++ show e1 ++ " G" ++ show x ++ " " ++ show e2 ++ ")"
     show T = "1"
     show F = "0"
@@ -80,15 +95,26 @@ instance Show B4digit where
     show Q2 = "2"
     show Q3 = "3"
 
+digits :: [B4digit]
+digits = [Q0, Q1, Q2, Q3]
+
+
+
 type B4num = (B4digit, B4digit, B4digit, B4digit)
 
-spec :: B4num -> Exp 
+allb4nums :: [B4num]
+allb4nums = [(a,b,c,d) | a <- digits, b <- digits, c <- digits, d<-digits]
+
+
+spec :: B4num -> Exp
 spec (d3, d2, d1, d0) = Prelude.foldl1 (BinApp Or) [
      BinApp And (BinApp And (Not (Var C1)) (Not (Var C0))) (spec00 d3)
     ,BinApp And (BinApp And (Not (Var C1)) (Var C0))       (spec01 d2)
     ,BinApp And (BinApp And (Var C1)       (Not (Var C0))) (spec10 d1)
     ,BinApp And (BinApp And (Var C1)       (Var C0))       (spec11 d0)
     ]
+
+
 
 spec00, spec01, spec10, spec11 :: B4digit -> Exp
 spec00 Q0 = BinApp Xor (Var A) (Var B)
@@ -113,7 +139,7 @@ spec11 Q3 = BinApp Or (Not (Var A)) (Not (Var B))
 
 
 specTable :: B4num -> [[String]]
-specTable (d3, d2, d1, d0) = 
+specTable (d3, d2, d1, d0) =
     [
         [     "Digits "     ,"C_1","C_2",     "Output"    ],
         ["D_3 = " ++ show d3," 0 "," 0 ", show (spec00 d3)],
@@ -125,83 +151,60 @@ specTable (d3, d2, d1, d0) =
 ppTable :: [[String]] -> String
 ppTable t = unlines $ Prelude.map (intercalate " | ") t
 
-eval :: VarEnv -> Exp -> Int
-eval = e
+eval :: Exp -> Int
+eval exp = 0xFFFF .&. e  exp
     where
-        e env (BinApp And x y)   = e env x .&. e env y
-        e env (BinApp Nand x y)  = complement $ e env x .&. e env y
-        e env (BinApp Or x y)    = e env x .|. e env y
-        e env (BinApp Nor x y)   = complement $ e env x .|. e env y
-        e env (BinApp Xor x y)   = e env x `xor` e env y
-        e env (BinApp Xnor x y)  = complement $ e env x `xor` e env y
-        e env (BinApp JustA x y) = e env y
-        e env (BinApp JustB x y) = e env x
-        e env (BinApp NotA x y)  = complement $ e env x
-        e env (BinApp NotB x y)  = complement $ e env y
-        e env (BinApp TT _ _)    = complement zeroBits
-        e env (BinApp FF _ _)    = zeroBits
-        e env (Not x)            = complement $ e env x
-        e env (Var v)            = fromJust $ lookup v env
-        e env T                  = complement zeroBits 
-        e env F                  = zeroBits
-        e env Repl {}            = error "evaluated expression with replacements"
-
-
-repl :: Exp -> GateEnv -> Exp
-repl exp env = r exp
-    where
-        r (BinApp g e1 e2) = BinApp g (r e1) (r e2)
-        r (Not e) = Not (r e)
-        r (Repl x e1 e2) = BinApp (allGates !! (env V.! x)) (r e1) (r e2)
-        r x = x
+        e (BinApp And x y)   = e x .&. e y
+        e (BinApp Nand x y)  = complement $ e x .&. e y
+        e (BinApp Or x y)    = e x .|. e y
+        e (BinApp Nor x y)   = complement $ e x .|. e y
+        e (BinApp Xor x y)   = e x `xor` e y
+        e (BinApp Xnor x y)  = complement $ e x `xor` e y
+        e (BinApp JustA x y) = e y
+        e (BinApp JustB x y) = e x
+        e (BinApp NotA x y)  = complement $ e x
+        e (BinApp NotB x y)  = complement $ e y
+        e (BinApp TT _ _)    = complement zeroBits
+        e (BinApp FF _ _)    = zeroBits
+        e (Not x)            = complement $ e x
+        e (Var C1)           = 0x00FF
+        e (Var C0)           = 0x0F0F
+        e (Var A)            = 0x3333
+        e (Var B)            = 0x5555
+        e T                  = complement zeroBits
+        e F                  = zeroBits
+        e Repl {}            = error "evaluated expression with replacements"
 
 allCombs :: VarEnv
-allCombs = [(A, 0x5555), (B, 0x3333), (C0, 0x0F0F), (C1, 0x00FF)]
+allCombs = map (\v -> (v, eval (Var v))) allVars
 
 
-
-applyFunc3 :: FuncId -> (Int, Int, Int) -> Int
-applyFunc3 f (a,b,c) = Prelude.foldl1 (.|.) [if testBit f (7 - lvl i) then bit i else 0 | i <- [0..7]]
-    where lvl i = shift (a .&. bit i) (2-i) .|. shift (b .&. bit i) (1-i) .|. shift (c .&. bit i) (-i)
-
-applyFunc4 :: FuncId -> (Int, Int, Int, Int) -> Int
-applyFunc4 f (a,b,c,d) = Prelude.foldl1 (.|.) [if testBit f (15 - lvl i) then bit i else 0 | i <- [0..15]]
-    where lvl i = 
-           shift (a .&. bit i) (3-i) .|. 
-           shift (b .&. bit i) (2-i) .|. 
+applyFunc :: FuncId -> [Int] -> Int
+applyFunc f [a,b,c,d] = 0xFFFF .&. Prelude.foldl1 (.|.) [if testBit f (15 - lvl i) then bit i else 0 | i <- [0..15]]
+    where lvl i =
+           shift (a .&. bit i) (3-i) .|.
+           shift (b .&. bit i) (2-i) .|.
            shift (c .&. bit i) (1-i) .|.
            shift (d .&. bit i) (0-i)
+applyFunc f _ = error "error"
 
 
-smallestP3 :: FuncId -> FuncId
-smallestP3 f = Prelude.minimum [applyFunc3 f (p!!0, p!!1, p!!2) | p <- permutations vars]
-    where vars = [0x55, 0x33, 0x0F]
-
-smallestP4 :: FuncId -> FuncId
-smallestP4 f = Prelude.minimum [applyFunc4 f (p!!0, p!!1, p!!2, p!!3) | p <- permutations vars]
+--- returns the lexicographically smallest permutation-equivalent function
+smallestP :: FuncId -> FuncId
+smallestP f = Prelude.minimum [applyFunc f p | p <- permutations vars]
     where vars = Prelude.map snd allCombs
 
+
+
 --- generate all possible n-element arrays of GateNo's
-gateCombos :: Vector GateNo -> Int -> VB.Vector GateEnv
-gateCombos gs 1 = VB.map V.singleton (VB.convert gs)
-gateCombos gs n = VB.concatMap (\group -> VB.map (`V.cons` group) (VB.convert gs)) gcs
-    where gcs = gateCombos gs (n-1)
+gateCombos :: Vector GateNo -> Int -> Vector GateEnv
+gateCombos gs 1 = V.map V.singleton gs
+gateCombos gs n = V.concatMap (\group -> V.map (`V.cons` group) gs) gcs
+        where gcs = gateCombos gs (n-1)
 
 
 
-
-scheme3, scheme4_6, scheme4_10 :: (Int, Int, Exp)
-scheme3 = (6, 3, Repl 1 
-    (Repl 2 
-        (Repl 4 (Var A) (Var B)) 
-        (Repl 5 (Var A) (Var C0))
-    ) 
-    (Repl 3 
-        (Repl 5 (Var A) (Var C0)) 
-        (Repl 0 (Var B) (Var C0))
-    ))
-
-scheme4_6 = (6, 4, Repl 0
+scheme4_6 = (6, Repl 0
     (Repl 5
         (Repl 3 (Var A) (Var B))
         (Repl 2 (Var B) (Var C0))
@@ -212,7 +215,7 @@ scheme4_6 = (6, 4, Repl 0
     )
     )
 
-scheme4_7 = (7, 4, Repl 0
+scheme4_7 = (7, Repl 0
     (Repl 6
         (Repl 4 (Var A) (Var B))
         (Repl 3 (Var B) (Var C0))
@@ -223,7 +226,7 @@ scheme4_7 = (7, 4, Repl 0
     )
     )
 
-scheme4_8 = (8, 4, Repl 0
+scheme4_8_1 = (8, Repl 0
     (Repl 6
         (Repl 4 (Var A) (Var B))
         r3
@@ -237,10 +240,10 @@ scheme4_8 = (8, 4, Repl 0
     )
     where r3 = Repl 3 (Var B) (Var C0)
 
-scheme4_8_2 = (8, 4, 
+scheme4_8_2 = (8,
     Repl 0
         (Repl 7
-            (Repl 6 
+            (Repl 6
                 (Repl 5 r1 r2)
                 r3
             )
@@ -253,12 +256,12 @@ scheme4_8_2 = (8, 4,
           r3 = Repl 3 (Var C0) (Var C1)
           r4 = Repl 4 (Var C1) (Var A)
 
-scheme4_8_3 = (8, 4, 
+scheme4_8_3 = (8,
     Repl 0
         (Repl 7
-            (Repl 6 
+            (Repl 6
                 (Repl 5 r1 r2)
-                r3
+                (Var B)
             )
             r4
         )
@@ -269,9 +272,47 @@ scheme4_8_3 = (8, 4,
           r3 = Repl 3 (Var C0) (Var C1)
           r4 = Repl 4 (Var C1) (Var A)
 
-scheme4_10 = (10, 4, Repl 10
+scheme4_8_4 = (8,
+    Repl 0
+        (Repl 7
+            (Repl 6
+                (Repl 5 r1 r2)
+                (Var B)
+            )
+            r4
+        )
+        r3
+    )
+    where r1 = Repl 1 (Var A)  (Var B)
+          r2 = Repl 2 (Var B)  (Var C0)
+          r3 = Repl 3 (Var C0) (Var C1)
+          r4 = Repl 4 (Var C1) (Var A)
+
+scheme4_9_1 = (9,
+    Repl 0
+        (Repl 7
+            (Repl 5
+                r1
+                r2
+            )
+            r3
+        )
+        (Repl 8
+            r2
+            (Repl 6
+                r3
+                r4
+            )
+        )
+    )
+    where r1 = Repl 1 (Var A)  (Var B)
+          r2 = Repl 2 (Var B)  (Var C0)
+          r3 = Repl 3 (Var C0) (Var C1)
+          r4 = Repl 4 (Var C1) (Var A)
+
+scheme4_10 = (10, Repl 10
     (Repl 9
-        (Repl 8 
+        (Repl 8
             r7
             r5
         )
@@ -280,7 +321,7 @@ scheme4_10 = (10, 4, Repl 10
     (Repl 4
         r6
         (Repl 3
-            r1 
+            r1
             r7
         )
     )
@@ -291,70 +332,249 @@ scheme4_10 = (10, 4, Repl 10
           r7 = Repl 7 (Var A) (Var B)
           r6 = Repl 6 r5 r2
 
-allResults :: (Int, Int, Exp) -> VarEnv -> Vector (FuncId, Cost)
-allResults (n, numVars, exp) combs = V.modify V.Algorithms.Intro.sort ar
-    where 
-        ar = V.filter (/=(-1, -1)) $ V.imap imapHelper table
 
-        imapHelper :: Int -> Cost -> (FuncId, Cost)
-        imapHelper i cst = if cst < 9999 then (i, cst) else (-1, -1)
-        
 
-        table :: Vector Cost
-        table = minCosts $ V.convert $ VB.map compOne gcs
-        
-        gcs :: VB.Vector GateEnv
-        gcs = gateCombos gatesToUse n
+allResults :: (Int, Exp) -> Vector (FuncId, Exp, Cost)
+allResults (numGates, exp) = V.modify V.sort ar
+    where
+        ar :: Vector (FuncId, Exp, Cost)
+        ar = V.filter (/=(-1, F, -1)) $ V.imap imapHelper tableForm
 
-        compOne :: GateEnv -> (FuncId, Cost)
-        compOne gc = (canonicForm (evalRes gc), gcCost gc)
+        imapHelper :: Int -> (Exp, Cost) -> (FuncId, Exp, Cost)
+        imapHelper i (exp, cst) = if cst < 9999 then (i, exp, cst) else (-1, F, -1)
 
-        canonicForm = (V.!) eqClass4 
+        -- 2^(2^4) size vector with (Exp, Cost) /= (F, 9999) at position fid
+        -- if function fid was constructed
+        tableForm :: V.Vector (Exp, Cost)
+        tableForm = minCosts $ V.convert $ V.map compOne (gateCombos gatesToUse numGates)
 
-        evalRes gc = mask $ eval combs (repl exp gc)
-        mask x = x .&. complement (shiftL (complement zeroBits) (2^numVars))
+        gatesToUse :: Vector GateNo
+        gatesToUse = V.fromList [0, 1, 2, 3, 4, 5]
 
-        gcCost gc = V.sum $ V.map (cost.(allGates!!)) gc
+        compOne :: GateEnv -> (FuncId, Exp, Cost)
+        compOne gc = (fid, exp', gcCost gc)
+            where exp' = fillGates exp gc
+                  fid  = canonize $ mask $ eval exp'
+                  mask x = x .&. complement (shiftL (complement zeroBits) (2^4))
+                  gcCost gc = V.sum $ V.map (cost.(allGates!!)) gc
 
-        minCosts :: Vector (FuncId, Cost) -> Vector Cost
-        minCosts = V.foldl func (V.replicate (2^(2^4)) 9999)
-            where 
-                func :: Vector Cost -> (FuncId, Cost) -> Vector Cost
-                func vect (fid, cst) = if cst < vect V.! fid then vect V.// [(fid, cst)] else vect 
+        fillGates :: Exp -> GateEnv -> Exp
+        fillGates exp env = r exp
+            where
+                r (BinApp g e1 e2) = BinApp g (r e1) (r e2)
+                r (Not e) = Not (r e)
+                r (Repl x e1 e2) = BinApp (allGates !! (env V.! x)) (r e1) (r e2)
+                r x = x
+
+        minCosts :: Vector (FuncId, Exp, Cost) -> Vector (Exp, Cost)
+        minCosts = V.foldl func (V.replicate (2^(2^4)) (F, 9999))
+            where
+                func :: Vector (Exp, Cost) -> (FuncId, Exp, Cost) -> Vector (Exp, Cost)
+                func vect (fid, exp, cst) = if cst < snd (vect V.! fid) then vect V.// [(fid, (exp, cst))] else vect
+
+canonize :: FuncId -> FuncId
+canonize f = eqClass V.! f
+
+
+
+augmentWithInputInversions :: Vector (FuncId, Exp, Cost) -> Vector (FuncId, Exp, Cost)
+augmentWithInputInversions rs = combineResults [V.concatMap (\res -> V.map (invertRes res) allVarLists) rs]
+
+invertRes :: (FuncId, Exp, Cost) -> [Var] -> (FuncId, Exp, Cost)
+invertRes (f, exp, c) invs = (canonize $ eval exp', exp', c + (cost NotA * length invs))
+    where exp' = invertExp exp invs
+
+
+-- returns an input combo and a list of vars that were inverted
+allVarLists :: V.Vector [Var]
+allVarLists = V.fromList $ map gen [0..15]
+    where
+        gen :: Int -> [Var]
+        gen x = [allVars!!i | i <- [0..3], testBit x i]
+
+
+invertExp :: Exp -> [Var] -> Exp
+invertExp exp env = r exp
+    where
+        r (BinApp g e1 e2) = BinApp g (r e1) (r e2)
+        r (Not e) = Not (r e)
+        r (Var x) = if x `elem` env then Not (Var x) else Var x
+        r x = x
+
+noInvertExpIsOriginal :: Bool
+noInvertExpIsOriginal = and [eval exp == eval (invertExp exp []) | exp <- map extractExp (V.toList s7res)]
+    where extractExp = \(_, e, _) -> e
+
+twiceInvertExpIsOriginal :: Bool
+twiceInvertExpIsOriginal = and [eval exp == eval (invertExp (invertExp exp invs) invs) | exp <- map extractExp (V.toList s7res), invs <- V.toList allVarLists]
+    where extractExp = \(_, e, _) -> e
+
 
 -- eqClassN is a lookup table to efficiently find the smallest representative
 -- of the permutation invariant euqivalence class
 
-eqClass3 :: Vector FuncId
-eqClass3 = V.map smallestP3 (V.enumFromN 0 (2^8))
+eqClass :: Vector FuncId
+eqClass = V.map smallestP (V.enumFromN 0 (2^16))
 
-eqClass4 :: Vector FuncId
-eqClass4 = V.map smallestP4 (V.enumFromN 0 (2^16))
+testEqClass :: Bool
+testEqClass = V.all (\x -> eqClass V.! (eqClass V.! x) == eqClass V.! x) eqClass
 
-eqClasses4 :: Vector FuncId
-eqClasses4 = V.uniq $ V.modify V.Algorithms.Intro.sort eqClass4
+eqClasses :: Vector FuncId
+eqClasses = V.uniq $ V.modify V.sort eqClass
 
-s4_6res, s4_7res, s4_8res, s4_8_2res :: Vector (FuncId, Cost)
-s4_6res = allResults scheme4_6 allCombs -- 1129
-s4_7res = allResults scheme4_7 allCombs -- 1737  (of which 667 are not in s4_6res)
+s6res, s7res, s8_1res, s8_2res, s8_3res :: Vector (FuncId, Exp, Cost)
+s6res = allResults scheme4_6
+s7res = allResults scheme4_7
 
-s4_8res = allResults scheme4_8 allCombs -- 3224  (turns out this contains all circuits obtainable using s4_6 and s4_7)
-s4_8_2res = allResults scheme4_8_2 allCombs -- 3642 (of which 3124 are in common in scheme 4_8)
---union of s4_8 and s4_8_2 is 3742
+s8_1res = allResults scheme4_8_1
+s8_2res = allResults scheme4_8_2
+s8_3res = allResults scheme4_8_3
+
+--union of s8_1 and s8_2 is 3742
 --intersection is therefore 3124
 
-combineResults :: [Vector (FuncId, Cost)] -> Vector (FuncId, Cost)
-combineResults rs = V.fromList $ remDup sorted 
+
+
+combineResults :: [Vector (FuncId, Exp, Cost)] -> Vector (FuncId, Exp, Cost)
+combineResults rs = V.fromList $ remDup sorted
     where
-        sorted = V.toList $ V.modify V.Algorithms.Intro.sort concatenated
+        sorted = V.toList $ V.modify V.sort concatenated
         concatenated = foldl1 (V.++) rs
 
-remDup :: Eq a => [(a, b)] -> [(a, b)]
-remDup [] = []
-remDup [x] = [x]
-remDup (x:y:xs) = if fst x == fst y then remDup (x : xs) else x : remDup (y:xs)
+        remDup :: Eq a => [(a, b, c)] -> [(a, b, c)]
+        remDup [] = []
+        remDup [x] = [x]
+        remDup (x@(a1,_,_):y@(a2,_,_):xs) = if a1 == a2 then remDup (x : xs) else x : remDup (y:xs)
+
+
+--- finds a permutation of input transforming an optimal circuit into 
+--- one implementing the given function
+retrieveP :: FuncId -> FuncId -> [(Var, Var)]
+retrieveP equiv orig = zip [C1, C0, A, B] $ head [map fst p | p <- permutations allCombs, applyFunc equiv (map snd p) == orig]
+
+
+
+--- swaps all variables in an expression according to a lookup table
+permute :: Exp -> [(Var, Var)] -> Exp
+permute exp env = r exp
+    where
+        r (BinApp g e1 e2) = BinApp g (r e1) (r e2)
+        r (Not e) = Not (r e)
+        r (Var x) = Var (fromJust $ lookup x env)
+        r x = x
+
+
+--- tests whether a circuit can be generated for given candidate code
+integrationTest :: Vector (FuncId, Exp, Cost) -> B4num -> Bool
+integrationTest rs b4 = cost /= -1 && origEval == exp'Eval  where
+    origEval = eval (spec b4)
+    exp'Eval = eval exp'
+    exp' = permute exp perm
+    perm = retrieveP evalres origEval
+    evalres = eval exp
+    (_, exp, cost) = V.head $ V.filter (\(fid, _, _) -> fid == origCan) (rs V.++ V.singleton (origCan, F, -1))
+    origCan = canonize origEval
+
+candidateCost :: Vector (FuncId, Exp, Cost) -> B4num -> Maybe Cost
+candidateCost rs b4 = if cost /= -1 && origEval == exp'Eval then Just cost else Nothing  where
+    origEval = eval (spec b4)
+    exp'Eval = eval exp'
+    exp' = permute exp perm
+    perm = retrieveP evalres origEval
+    evalres = eval exp
+    (_, exp, cost) = V.head $ V.filter (\(fid, _, _) -> fid == origCan) (rs V.++ V.singleton (origCan, F, -1))
+    origCan = canonize origEval
+
+testProcess :: IO ()
+testProcess = do
+    let specExp = spec (Q0, Q0, Q0, Q2)
+    let specF = eval specExp
+    putStrLn $ "original R: " ++ show specF
+
+    let specCan = canonize specF
+    putStrLn $ "canonical R: " ++ show specCan
+
+    let rs = augmentWithInputInversions s7res
+
+    let (_, exp, cost) = V.head $ V.filter (\(fid, _, _) -> fid == specCan) (augmentWithInputInversions rs)
+
+
+
+    -- canonical expression
+    putStrLn $ "exp: " ++ show exp
+
+    let invOrig = invertExp specExp [B]
+    putStrLn $ "inverted original fid: " ++ show (canonize $ eval invOrig)
+
+    let evalres =  eval exp
+    putStrLn $ "evals to: " ++ show evalres
+    putStrLn $ "canonically: " ++ show (canonize evalres)
+
+    putStrLn $ "cost: " ++ show cost
+
+
+    let perm = retrieveP evalres specF
+
+    let exp' = permute exp perm
+
+    print $ eval exp'
+    print exp'
+
+
+type BoolFunc = VarEnv -> Int
+type ReplacableBoolFunc = GateEnv -> BoolFunc
+
+
+dagToExp :: Dag Var -> Exp
+dagToExp [] = error "empty dag"
+dagToExp d = f size
+    where
+        f :: Int -> Exp
+        f i = let (a, b) = d!!(size - i) in Repl (i-1) (g a) (g b)
+
+        g :: DagNode Var -> Exp
+        g (N x) = f x
+        g (Inp v) = Var v
+
+        size = length d
+
+
+integrationTestsPassing :: Vector (FuncId, Exp, Cost) -> Int
+integrationTestsPassing rs = length $ filter (integrationTest rs) allb4nums
+
+-- evalDag :: Dag Var -> GateEnv -> VarEnv -> Int
+-- evalDag
 
 main :: IO ()
--- main = print $ length $ allFuncs (allResults scheme4_1 allCombs) 4
-main = print $ V.length s4_6res
--- main = print $ length $ Prelude.map head $ group $ toList $ V.modify V.Algorithms.Intro.sort eqClass4
+main = do
+    -- testProcess
+
+    -- let numGates = 6
+
+    -- let allDags1 = take 100 $ genDags allVars 4
+    -- let allDags2 = take 100 $ genDags allVars 5
+    -- let allDags3 = take 100 $ genDags allVars 6
+
+    -- let allDags = allDags3
+    -- -- let allDags = concat [genDags allVars ng | ng <- [1..numGates]]
+
+    -- -- putStrLn $ show (length allDags) ++ " dags in total"
+
+    -- let exps = zip (repeat numGates) (map dagToExp allDags)
+
+    let rs = s8_3res
+
+    -- let rs = combineResults $ map allResults exps
+    -- let rs = combineResults (map (`allResults` allCombs) exps ++ [s8_1res, s8_2res, s8_3res, s7res, s6res])
+    -- let rs = augmentWithInputInversions $ combineResults (map (`allResults` allCombs) exps ++ [s8_1res, s8_2res, s8_3res, s7res, s6res])
+
+    print $ V.length rs
+
+    -- let testRes = map (candidateCost rs) allb4nums
+
+    -- let succesfulTests = length $ filter isJust testRes
+
+    -- let avgCost = fromIntegral (sum $ catMaybes testRes) / fromIntegral succesfulTests
+
+    -- print succesfulTests
+    -- print avgCost
