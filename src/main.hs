@@ -1,7 +1,10 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# language BangPatterns #-}
 
-import Data.Maybe (fromJust, Maybe, fromMaybe, isJust, catMaybes, isNothing, listToMaybe)
+
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# language BangPatterns #-}
+import Data.Maybe (fromJust, Maybe, fromMaybe, isJust, catMaybes, isNothing, listToMaybe, mapMaybe)
 import Data.List (intercalate, sort, nub, groupBy, permutations, group)
 import Data.Bits (Bits (shiftR, shift, testBit), (.&.), (.|.), xor, complement, zeroBits, shiftL, bit, popCount)
 import qualified Data.Vector as V
@@ -12,170 +15,14 @@ import Numeric (showHex)
 
 import qualified Data.Vector.Algorithms.Intro as V (sort, sortBy)
 
-import Dags (genDags, Dag, DagNode (N, Inp))
+import Dags (genDags, Dag (Dag), DagNode (N, Inp, Inv))
+import Specs (allb4nums, spec, cost)
+import Exps
+import CommonTypes
 
-
-data Var = A | B | C1 | C0 deriving (Show, Eq)
-allVars = [C1, C0, A, B]
-
-instance Ord Var where
-    compare A x = if x == A then EQ else LT
-    compare B B = EQ
-    compare B C0 = LT
-    compare B C1 = LT
-    compare C0 C1 = LT
-    compare x y = if x == y then EQ else GT
-
-
-
-data Gate = And | Nand | Or | Nor | Xor | Xnor deriving (Eq, Show)
-type GateEnv = Vector Gate
-
-instance Ord Gate where
-    compare x y = EQ
-
-allGates = V.fromList [And, Nand, Or, Nor, Xor, Xnor]
-
-
-
-type Cost = Int
-type FuncId = Int
-
-cost :: Gate -> Cost
-cost And = 6
-cost Nand = 4
-cost Or = 6
-cost Nor = 4
-cost Xor = 8
-cost Xnor = 8
-
-
-data Exp = BinApp Gate Exp Exp
-         | Repl Int Exp Exp
-         | Not  Exp
-         | Var  Var
-         | T
-         | F
-        deriving (Eq)
-type VarEnv = [(Var, Int)]
-
-instance Ord Exp where
-    compare x y = EQ
-
-instance Show Exp where
-    show (BinApp And  e1 e2) = "(" ++ show e1 ++ " and " ++ show e2 ++ ")"
-    show (BinApp Nand e1 e2) = "(" ++ show e1 ++ " nand " ++ show e2 ++ ")"
-    show (BinApp Or   e1 e2) = "(" ++ show e1 ++ " or " ++ show e2 ++ ")"
-    show (BinApp Nor  e1 e2) = "(" ++ show e1 ++ " nor " ++ show e2 ++ ")"
-    show (BinApp Xor  e1 e2) = "(" ++ show e1 ++ " xor " ++ show e2 ++ ")"
-    show (BinApp Xnor e1 e2) = "(" ++ show e1 ++ " xnor " ++ show e2 ++ ")"
-    show (Var v)      = show v
-    show (Not v)      = show v ++ "'"
-    show (Repl x e1 e2) = "(" ++ show e1 ++ " G" ++ show x ++ " " ++ show e2 ++ ")"
-    show T = "1"
-    show F = "0"
-
-data B4digit = Q0 | Q1 | Q2 | Q3
-instance Show B4digit where
-    show Q0 = "0"
-    show Q1 = "1"
-    show Q2 = "2"
-    show Q3 = "3"
-
-digits :: [B4digit]
-digits = [Q0, Q1, Q2, Q3]
-
-
-
-type B4num = (B4digit, B4digit, B4digit, B4digit)
-
-allb4nums :: Vector B4num
-allb4nums = V.fromList [(a,b,c,d) | a <- digits, b <- digits, c <- digits, d<-digits]
-
-
-spec :: B4num -> Exp
-spec (d3, d2, d1, d0) = Prelude.foldl1 (BinApp Or) [
-     BinApp And (BinApp And (Not (Var C1)) (Not (Var C0))) (spec00 d3)
-    ,BinApp And (BinApp And (Not (Var C1)) (Var C0))       (spec01 d2)
-    ,BinApp And (BinApp And (Var C1)       (Not (Var C0))) (spec10 d1)
-    ,BinApp And (BinApp And (Var C1)       (Var C0))       (spec11 d0)
-    ]
-
-
-
-spec00, spec01, spec10, spec11 :: B4digit -> Exp
-spec00 Q0 = BinApp Xor (Var A) (Var B)
-spec00 Q1 = BinApp Xnor (Var A) (Var B)
-spec00 Q2 = T
-spec00 Q3 = F
-
-spec01 Q0 = Var A
-spec01 Q1 = Not (Var A)
-spec01 Q2 = Not (Var B)
-spec01 Q3 = Var B
-
-spec10 Q0 = BinApp And (Var A)       (Var B)
-spec10 Q1 = BinApp And (Var A)       (Not (Var B))
-spec10 Q2 = BinApp And (Not (Var A)) (Not (Var B))
-spec10 Q3 = BinApp And (Not (Var A)) (Var B)
-
-spec11 Q0 = BinApp Or (Var A)       (Var B)
-spec11 Q1 = BinApp Or (Not (Var A)) (Var B)
-spec11 Q2 = BinApp Or (Var A)       (Not (Var B))
-spec11 Q3 = BinApp Or (Not (Var A)) (Not (Var B))
-
-
-specTable :: B4num -> [[String]]
-specTable (d3, d2, d1, d0) =
-    [
-        [     "Digits "     ,"C_1","C_2",     "Output"    ],
-        ["D_3 = " ++ show d3," 0 "," 0 ", show (spec00 d3)],
-        ["D_2 = " ++ show d2," 0 "," 1 ", show (spec01 d2)],
-        ["D_1 = " ++ show d1," 1 "," 0 ", show (spec10 d1)],
-        ["D_0 = " ++ show d0," 1 "," 1 ", show (spec11 d0)]
-    ]
-
-ppTable :: [[String]] -> String
-ppTable t = unlines $ Prelude.map (intercalate " | ") t
-
-eval :: Exp -> Int
-eval exp = 0xFFFF .&. e  exp
-    where
-        e (BinApp And x y)   = e x .&. e y
-        e (BinApp Nand x y)  = complement $ e x .&. e y
-        e (BinApp Or x y)    = e x .|. e y
-        e (BinApp Nor x y)   = complement $ e x .|. e y
-        e (BinApp Xor x y)   = e x `xor` e y
-        e (BinApp Xnor x y)  = complement $ e x `xor` e y
-        e (Not x)            = complement $ e x
-        e (Var C1)           = 0x00FF
-        e (Var C0)           = 0x0F0F
-        e (Var A)            = 0x3333
-        e (Var B)            = 0x5555
-        e T                  = complement zeroBits
-        e F                  = zeroBits
-        e Repl {}            = error "evaluated expression with replacements"
-
-eval2 :: (Exp, GateEnv) -> Int
-eval2 (exp, gEnv) = 0xFFFF .&. e exp
-    where
-        e (BinApp And x y)   = e x .&. e y
-        e (BinApp Nand x y)  = complement $ e x .&. e y
-        e (BinApp Or x y)    = e x .|. e y
-        e (BinApp Nor x y)   = complement $ e x .|. e y
-        e (BinApp Xor x y)   = e x `xor` e y
-        e (BinApp Xnor x y)  = complement $ e x `xor` e y
-        e (Not x)            = complement $ e x
-        e (Var C1)           = 0x00FF
-        e (Var C0)           = 0x0F0F
-        e (Var A)            = 0x3333
-        e (Var B)            = 0x5555
-        e T                  = complement zeroBits
-        e F                  = zeroBits
-        e (Repl x exp1 exp2) = e (BinApp (gEnv V.! x) exp1 exp2)
 
 allCombs :: VarEnv
-allCombs = map (\v -> (v, eval (Var v))) allVars
+allCombs = map (\v -> (v, eval v V.empty)) allVars
 
 
 applyFunc :: FuncId -> [Int] -> Int
@@ -332,10 +179,10 @@ scheme4_10 = (10, Repl 10
           r6 = Repl 6 r5 r2
 
 
-type Circuit = (Exp, GateEnv)
-type CircuitInfo = (FuncId, Circuit, Cost)
+type Circuit a = (a, GateEnv)
+type CircuitInfo a = (FuncId, Circuit a, Cost)
 
-toExp :: Circuit -> Exp
+toExp :: Circuit Exp -> Exp
 toExp (exp, gEnv) = r exp
     where
         r (BinApp g e1 e2) = BinApp g (r e1) (r e2)
@@ -343,29 +190,24 @@ toExp (exp, gEnv) = r exp
         r (Repl x e1 e2) = BinApp (gEnv V.! x) (r e1) (r e2)
         r x = x
 
-allResults :: (Int, Exp) -> Vector CircuitInfo
+allResults :: (GenvEvaluable a, Ord a) => (Int, a) -> Vector (CircuitInfo a)
 allResults (numGates, exp) = V.modify V.sort ar
     where
-        ar :: Vector CircuitInfo
         ar =  V.map fromJust $ V.filter isJust (V.imap imapH tableForm)
             where imapH i = maybe Nothing (\(c, cst) -> Just (i, c, cst))
 
-
-        tableForm :: V.Vector (Maybe (Circuit, Cost))
         tableForm = minCosts $ V.map compOne (gateCombos allGates numGates)
 
-        compOne :: GateEnv -> CircuitInfo
         compOne gEnv = (fid, (exp, gEnv), gcCost gEnv)
-            where fid  = canonize $ mask $ eval2 (exp, gEnv)
+            where fid  = canonize $ mask $ eval exp gEnv
                   mask x = x .&. complement (shiftL (complement zeroBits) (2^4))
                   gcCost gEnv = V.sum $ V.map cost gEnv
 
 
-
-        minCosts :: Vector CircuitInfo -> Vector (Maybe (Circuit, Cost))
+        minCosts :: Vector (CircuitInfo a) -> Vector (Maybe (Circuit a, Cost))
         minCosts = V.foldl func (V.replicate (2^(2^4)) Nothing)
             where
-                func :: Vector (Maybe (Circuit, Cost)) -> CircuitInfo -> Vector (Maybe (Circuit, Cost))
+                func :: Vector (Maybe (Circuit a, Cost)) -> CircuitInfo a -> Vector (Maybe (Circuit a, Cost))
                 func vect (fid, c, cst) = if maybe True (\(c', cst')-> cst < cst') (vect V.! fid) then vect V.// [(fid, Just (c, cst))] else vect
 
 canonize :: FuncId -> FuncId
@@ -373,12 +215,15 @@ canonize f = eqClass V.! f
 
 
 
-augmentWithInputInversions :: Vector CircuitInfo -> Vector CircuitInfo
+augmentWithInputInversions :: (GenvEvaluable a, Ord a) => Vector (CircuitInfo a) -> Vector (CircuitInfo a)
 augmentWithInputInversions rs = combineResults [V.concatMap (\res -> V.map (invertRes res) allVarLists) rs]
 
-invertRes :: CircuitInfo -> [Var] -> CircuitInfo
-invertRes (f, circ, cst) invs = (canonize $ eval2 circ', circ', cst + (3 * length invs))
+invertRes :: (GenvEvaluable a) => CircuitInfo a -> [Var] -> CircuitInfo a
+invertRes (f, circ, cst) invs = (canonize $ uncurry eval circ', circ', cst + (3 * length invs))
     where circ' = invertCirc circ invs
+
+invertCirc :: (GenvEvaluable a) => Circuit a -> [Var] -> Circuit a
+invertCirc (circ, gEnv) invs = (invert circ invs, gEnv)
 
 
 -- returns an input combo and a list of vars that were inverted
@@ -388,29 +233,26 @@ allVarLists = V.fromList $ map gen [0..15]
         gen :: Int -> [Var]
         gen x = [allVars!!i | i <- [0..3], testBit x i]
 
-invertCirc :: Circuit -> [Var] -> Circuit
-invertCirc (exp, gEnv) invs = (invertExp exp invs, gEnv)
 
-invertExp :: Exp -> [Var] -> Exp
-invertExp exp invs = r exp
-    where
-        r (BinApp g e1 e2) = BinApp g (r e1) (r e2)
-        r (Repl x e1 e2) = Repl x (r e1) (r e2)
-        r (Not e) = Not (r e)
-        r (Var x) = if x `elem` invs then Not (Var x) else Var x
-        r x = x
+
 
 noInvertExpIsOriginal :: Bool
-noInvertExpIsOriginal = and [eval2 exp == eval2 (invertCirc exp []) | exp <- map extractCirc (V.toList s7res)]
+noInvertExpIsOriginal = and [uncurry eval circ == uncurry eval (invertCirc circ []) | circ <- map extractCirc (V.toList (allResults scheme4_7))]
     where extractCirc = \(_, c, _) -> c
 
 twiceInvertExpIsOriginal :: Bool
-twiceInvertExpIsOriginal = and [eval2 exp == eval2 (invertCirc (invertCirc exp invs) invs) | exp <- map extractCirc (V.toList s7res), invs <- V.toList allVarLists]
+twiceInvertExpIsOriginal = and [uncurry eval circ == uncurry eval (invertCirc (invertCirc circ invs) invs) | circ <- map extractCirc (V.toList (allResults scheme4_7)), invs <- V.toList allVarLists]
     where extractCirc= \(_, c, _) -> c
 
 
--- eqClassN is a lookup table to efficiently find the smallest representative
--- of the permutation invariant euqivalence class
+
+
+
+
+--- finds a permutation of input transforming an optimal circuit into 
+--- one implementing the given function
+retrieveP :: FuncId -> FuncId -> [(Var, Var)]
+retrieveP equiv orig = zip [C1, C0, A, B] $ head [map fst p | p <- permutations allCombs, applyFunc equiv (map snd p) == orig]
 
 eqClass :: Vector FuncId
 eqClass = V.map smallestP (V.enumFromN 0 (2^16))
@@ -421,20 +263,12 @@ testEqClass = V.all (\x -> eqClass V.! (eqClass V.! x) == eqClass V.! x) eqClass
 eqClasses :: Vector FuncId
 eqClasses = V.uniq $ V.modify V.sort eqClass
 
-s6res, s7res, s8_1res, s8_2res, s8_3res :: Vector CircuitInfo
-s6res = allResults scheme4_6
-s7res = allResults scheme4_7
-
-s8_1res = allResults scheme4_8_1
-s8_2res = allResults scheme4_8_2
-s8_3res = allResults scheme4_8_3
-
---union of s8_1 and s8_2 is 3742
---intersection is therefore 3124
 
 
 
-combineResults :: [Vector CircuitInfo] -> Vector CircuitInfo
+
+
+combineResults :: (Ord a) => [Vector (CircuitInfo a)] -> Vector (CircuitInfo a)
 combineResults rs = V.fromList $ remDup sorted
     where
         sorted = V.toList $ V.modify V.sort concatenated
@@ -446,100 +280,23 @@ combineResults rs = V.fromList $ remDup sorted
         remDup (x@(a1,_,_):y@(a2,_,_):xs) = if a1 == a2 then remDup (x : xs) else x : remDup (y:xs)
 
 
---- finds a permutation of input transforming an optimal circuit into 
---- one implementing the given function
-retrieveP :: FuncId -> FuncId -> [(Var, Var)]
-retrieveP equiv orig = zip [C1, C0, A, B] $ head [map fst p | p <- permutations allCombs, applyFunc equiv (map snd p) == orig]
-
-
-
---- swaps all variables in an expression according to a lookup table
-permute :: Circuit -> [(Var, Var)] -> Circuit
-permute (exp, gEnv) env = (r exp, gEnv)
-    where
-        r (BinApp g e1 e2) = BinApp g (r e1) (r e2)
-        r (Not e) = Not (r e)
-        r (Var x) = Var (fromJust $ lookup x env)
-        r x = x
-
-
---- tests whether a circuit can be generated for given candidate code
--- integrationTest :: Vector CircuitInfo -> B4num -> Bool
--- integrationTest rs b4 = cost /= -1 && origEval == exp'Eval  where
---     origEval = eval (spec b4)
---     exp'Eval = eval exp'
---     exp' = permute exp perm
---     perm = retrieveP evalres origEval
---     evalres = eval exp
---     (_, exp, cost) = V.head $ V.filter (\(fid, _, _) -> fid == origCan) (rs V.++ V.singleton (origCan, F, -1))
---     origCan = canonize origEval
-
--- candidateCost :: Vector CircuitInfo -> B4num -> Maybe Cost
--- candidateCost rs b4 = if cost /= -1 && origEval == exp'Eval then Just cost else Nothing  where
---     origEval = eval (spec b4)
---     exp'Eval = eval exp'
---     exp' = permute exp perm
---     perm = retrieveP evalres origEval
---     evalres = eval exp
---     (_, exp, cost) = V.head $ V.filter (\(fid, _, _) -> fid == origCan) (rs V.++ V.singleton (origCan, F, -1))
---     origCan = canonize origEval
-
-optimalCircuit :: Vector CircuitInfo -> Exp -> Maybe (Exp, Cost)
+optimalCircuit :: Vector (CircuitInfo a) -> Exp -> Maybe (Circuit a, Cost)
 optimalCircuit rs exp = maybeCirc where
-    maybeCirc = (\(_, circ, cost) -> Just (toExp circ, cost)) =<< maybeCI
+    maybeCirc = (\(_, circ, cost) -> Just (circ, cost)) =<< maybeCI
     maybeCI = listToMaybe $ V.toList $ V.filter (\(fid, _, _) -> fid == origCan) rs
-    origCan = canonize (eval exp)
-
-isExpAchievable :: Vector CircuitInfo -> Exp -> Bool
-isExpAchievable rs exp = not $ null $ V.filter (\(fid, _, _) -> fid == canonize (eval exp)) rs
-
-numAchievable :: Vector CircuitInfo -> Int
-numAchievable rs = V.length $ V.filter (isExpAchievable rs) (V.map spec allb4nums)
-
-testProcess :: IO ()
-testProcess = do
-    let rs = augmentWithInputInversions s8_2res
-
-
-    let specExp = spec (Q0, Q0, Q0, Q3)
-    
-
-    let specF = eval specExp
-    putStrLn $ "original R: " ++ show specF
-
-    let specCan = canonize specF
-    putStrLn $ "canonical R: " ++ show specCan
+    origCan = canonize (eval exp V.empty)
 
 
 
-    let (_, circ, cost) = V.head $ V.filter (\(fid, _, _) -> fid == specCan) (augmentWithInputInversions rs)
+isExpAchievable :: Vector (CircuitInfo a) -> Exp -> Bool
+isExpAchievable rs exp = not $ null $ V.filter (\(fid, _, _) -> fid == canonize (eval exp V.empty)) rs
 
-
-
-    -- canonical expression
-    putStrLn $ "exp: " ++ show (toExp circ)
-
-    let invOrig = invertExp specExp [B]
-    putStrLn $ "inverted original fid: " ++ show (canonize $ eval invOrig)
-
-    let evalres =  eval2 circ
-    putStrLn $ "evals to: " ++ show evalres
-    putStrLn $ "canonically: " ++ show (canonize evalres)
-
-    putStrLn $ "cost: " ++ show cost
-
-
-    let perm = retrieveP evalres specF
-
-    let circ' = permute circ perm
-
-    print $ eval2 circ'
-    print $ toExp circ'
-
+numAchievable :: Vector (CircuitInfo a) -> Int
+numAchievable rs = length $ filter (isExpAchievable rs) (map spec allb4nums)
 
 dagToExp :: Dag Var -> Exp
-dagToExp [] = error "empty dag"
-dagToExp d = f size
+dagToExp (Dag []) = error "empty dag"
+dagToExp (Dag d) = f size
     where
         f :: Int -> Exp
         f i = let (a, b) = d!!(size - i) in Repl (i-1) (g a) (g b)
@@ -547,53 +304,33 @@ dagToExp d = f size
         g :: DagNode Var -> Exp
         g (N x) = f x
         g (Inp v) = Var v
-
+        g (Inv v) = Not (Var v)
         size = length d
-
--- integrationTestsPassing :: Vector CircuitInfo -> Int
--- integrationTestsPassing rs = length $ filter (integrationTest rs) allb4nums
-
--- evalDag :: Dag Var -> GateEnv -> VarEnv -> Int
--- evalDag
 
 main :: IO ()
 main = do
-    let numGates = 5
+    let numGates = 4
 
-    -- let allDags1 = take 100 $ genDags allVars 4
-    -- let allDags2 = take 100 $ genDags allVars 5
-    -- let allDags3 = take 100 $ genDags allVars 6
-
-    -- let allDags = allDags3
+    -- let allDags = genDags allVars numGates
     let allDags = concat [genDags allVars ng | ng <- [1..numGates]]
+    let exps = map dagToExp allDags
 
-    putStrLn $ show (length allDags) ++ " dags in total"
-
-    let exps = zip (repeat numGates) (map dagToExp allDags)
-
-    -- let rs = s8_3res
-
-    -- let rs = combineResults $ map allResults exps
-    -- let rs = combineResults (map (`allResults` allCombs) exps ++ [s8_1res, s8_2res, s8_3res, s7res, s6res])
-    let rs = augmentWithInputInversions $ combineResults (map allResults exps ++ [s8_1res, s8_2res, s8_3res, s7res, s6res])
+    let rs1 = combineResults $ map (curry allResults numGates) exps
+    let rs = augmentWithInputInversions rs1
 
     print $ V.length rs
 
+    putStrLn $ show (length allDags) ++ " dags in total"
+
     -- let testRes = map (candidateCost rs) allb4nums
 
-    let allSpecExps = V.map spec allb4nums
+    let allSpecExps = map spec allb4nums
 
-    let successes = catMaybes $ V.toList $ V.map (optimalCircuit rs) allSpecExps
-    
+    let successes = mapMaybe (optimalCircuit rs) allSpecExps
+
     let no =  length successes
     print no
 
     let totalCost = sum $ map snd successes
 
     print $ fromIntegral totalCost /  fromIntegral no
-    -- let succesfulTests = length $ filter isJust testRes
-
-    -- let avgCost = fromIntegral (sum $ catMaybes testRes) / fromIntegral succesfulTests
-
-    -- print succesfulTests
-    -- print avgCost
