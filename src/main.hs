@@ -31,11 +31,10 @@ instance Ord Var where
 
 
 
-data Gate = And | Nand | Or | Nor | Xor | Xnor | NotA | NotB | JustA | JustB | TT | FF deriving (Eq, Show)
-type GateEnv = Vector GateNo
-type GateNo = Int
+data Gate = And | Nand | Or | Nor | Xor | Xnor deriving (Eq, Show)
+type GateEnv = Vector Gate
 
-allGates = [And, Nand, Or, Nor, Xor, Xnor, NotA, NotB, JustA, JustB, TT, FF]
+allGates = V.fromList [And, Nand, Or, Nor, Xor, Xnor]
 
 
 
@@ -49,12 +48,6 @@ cost Or = 6
 cost Nor = 4
 cost Xor = 8
 cost Xnor = 8
-cost NotA = 3
-cost NotB = 3
-cost JustA = 0
-cost JustB = 0
-cost TT = 0
-cost FF = 0
 
 
 data Exp = BinApp Gate Exp Exp
@@ -76,12 +69,6 @@ instance Show Exp where
     show (BinApp Nor  e1 e2) = "(" ++ show e1 ++ " nor " ++ show e2 ++ ")"
     show (BinApp Xor  e1 e2) = "(" ++ show e1 ++ " xor " ++ show e2 ++ ")"
     show (BinApp Xnor e1 e2) = "(" ++ show e1 ++ " xnor " ++ show e2 ++ ")"
-    show (BinApp JustA e1 e2) = show e1
-    show (BinApp JustB e1 e2) = show e2
-    show (BinApp NotA e1 e2) = show (Not e1)
-    show (BinApp NotB e1 e2) = show (Not e2)
-    show (BinApp TT e1 e2) = "1"
-    show (BinApp FF e1 e2) = "0"
     show (Var v)      = show v
     show (Not v)      = show v ++ "'"
     show (Repl x e1 e2) = "(" ++ show e1 ++ " G" ++ show x ++ " " ++ show e2 ++ ")"
@@ -196,8 +183,8 @@ smallestP f = Prelude.minimum [applyFunc f p | p <- permutations vars]
 
 
 
---- generate all possible n-element arrays of GateNo's
-gateCombos :: Vector GateNo -> Int -> Vector GateEnv
+--- generate all possible n-element arrays of gates
+gateCombos :: GateEnv -> Int -> Vector GateEnv
 gateCombos gs 1 = V.map V.singleton gs
 gateCombos gs n = V.concatMap (\group -> V.map (`V.cons` group) gs) gcs
         where gcs = gateCombos gs (n-1)
@@ -346,24 +333,21 @@ allResults (numGates, exp) = V.modify V.sort ar
         -- 2^(2^4) size vector with (Exp, Cost) /= (F, 9999) at position fid
         -- if function fid was constructed
         tableForm :: V.Vector (Exp, Cost)
-        tableForm = minCosts $ V.convert $ V.map compOne (gateCombos gatesToUse numGates)
-
-        gatesToUse :: Vector GateNo
-        gatesToUse = V.fromList [0, 1, 2, 3, 4, 5]
+        tableForm = minCosts $ V.convert $ V.map compOne (gateCombos allGates numGates)
 
         compOne :: GateEnv -> (FuncId, Exp, Cost)
         compOne gc = (fid, exp', gcCost gc)
             where exp' = fillGates exp gc
                   fid  = canonize $ mask $ eval exp'
                   mask x = x .&. complement (shiftL (complement zeroBits) (2^4))
-                  gcCost gc = V.sum $ V.map (cost.(allGates!!)) gc
+                  gcCost gc = V.sum $ V.map cost gc
 
         fillGates :: Exp -> GateEnv -> Exp
         fillGates exp env = r exp
             where
                 r (BinApp g e1 e2) = BinApp g (r e1) (r e2)
                 r (Not e) = Not (r e)
-                r (Repl x e1 e2) = BinApp (allGates !! (env V.! x)) (r e1) (r e2)
+                r (Repl x e1 e2) = BinApp (env V.! x) (r e1) (r e2)
                 r x = x
 
         minCosts :: Vector (FuncId, Exp, Cost) -> Vector (Exp, Cost)
@@ -381,7 +365,7 @@ augmentWithInputInversions :: Vector (FuncId, Exp, Cost) -> Vector (FuncId, Exp,
 augmentWithInputInversions rs = combineResults [V.concatMap (\res -> V.map (invertRes res) allVarLists) rs]
 
 invertRes :: (FuncId, Exp, Cost) -> [Var] -> (FuncId, Exp, Cost)
-invertRes (f, exp, c) invs = (canonize $ eval exp', exp', c + (cost NotA * length invs))
+invertRes (f, exp, c) invs = (canonize $ eval exp', exp', c + (3 * length invs))
     where exp' = invertExp exp invs
 
 
