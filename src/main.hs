@@ -9,7 +9,6 @@ import Data.Bits (Bits (shiftR, shift, testBit), (.&.), (.|.), xor, complement, 
 import qualified Data.Vector as V
 import Data.Vector (Vector)
 
-import Test.QuickCheck as QC (quickCheck, (==>), Property)
 import Numeric (showHex)
 
 
