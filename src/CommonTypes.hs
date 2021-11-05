@@ -1,9 +1,14 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module CommonTypes where
 
 import qualified Data.Vector as V
 import Data.Vector (Vector)
 import Data.Bits (Bits (shiftR, shift, testBit), (.&.), (.|.), xor, complement, zeroBits, shiftL, bit, popCount)
 import Data.Maybe (fromJust)
+
+import Data.Aeson
+import Data.Text
 
 type Cost = Int
 type FuncId = Int
@@ -23,8 +28,17 @@ instance Ord Var where
 
 
 
-data Gate = And | Nand | Or | Nor | Xor | Xnor deriving (Eq, Show)
+data Gate = And | Nand | Or | Nor | Xor | Xnor deriving (Eq)
 type GateEnv = Vector Gate
+
+instance Show Gate where
+    show And = "and"
+    show Nand = "nand"
+    show Or = "or"
+    show Nor = "nor"
+    show Xor = "xor"
+    show Xnor = "xnor"
+
 
 gateOp :: Gate -> (Int -> Int -> Int)
 gateOp And = (.&.)
@@ -53,3 +67,36 @@ instance GenvEvaluable Var where
 
     permute x perms = fromJust $ lookup x perms
     invert  x invs  = undefined
+
+
+instance ToJSON Var where
+    toJSON A = String (pack "A")
+    toJSON B = String  (pack "B")
+    toJSON C0 = String (pack "C0")
+    toJSON C1 = String (pack "C1")
+
+instance FromJSON Var where
+    parseJSON (String "A") = return A
+    parseJSON (String "B") = return B
+    parseJSON (String "C0") = return C0
+    parseJSON (String "C1") = return C1
+    parseJSON _ = fail "Expected A, B, C0 or C1"
+
+
+instance ToJSON Gate where
+    toJSON And = String (pack "And")
+    toJSON Nand = String (pack "Nand")
+    toJSON Or = String (pack "Or")
+    toJSON Nor = String (pack "Nor")
+    toJSON Xor = String (pack "Xor")
+    toJSON Xnor = String (pack "Xnor")
+
+instance FromJSON Gate where
+    parseJSON (String "And") = return And
+    parseJSON (String "Nand") = return Nand
+    parseJSON (String "Or") = return Or
+    parseJSON (String "Nor") = return Nor
+    parseJSON (String "Xor") = return Xor
+    parseJSON (String "Xnor") = return Xnor
+    parseJSON _ = fail "Expected And, Nand, Or, Nor, Xor or Xnor"
+

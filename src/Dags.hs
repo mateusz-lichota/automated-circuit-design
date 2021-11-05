@@ -1,15 +1,18 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# language FlexibleInstances #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Dags where 
 import CommonTypes ( GenvEvaluable(..), Var, gateOp )
 
 import qualified Data.Vector as V
 import Data.Vector (Vector)
-import Data.Bits ((.&.))
+import Data.Bits ((.&.), complement)
+import Data.Aeson
+import Data.Aeson.Types (FromJSON)
 
 data DagNode a = N Int | Inp a | Inv a deriving (Eq, Show)
-newtype Dag a = Dag [(DagNode a, DagNode a)] deriving (Eq)
+newtype Dag a = Dag [(DagNode a, DagNode a)] deriving (Eq, Show)
 
 allPairs :: (Ord a) => [DagNode a] -> [(DagNode a,DagNode a)]
 allPairs xs =  [(N x, N y) | x <- ns, y <- ns, x < y] ++ [(Inp i, N x) | x <- ns, i <- inps] ++ [(Inp a, Inp b) | a <- inps, b <- inps, a < b]
@@ -41,13 +44,13 @@ instance GenvEvaluable (Dag Var) where
             where i = length prev
                   val (N no) = prev !! (i - no)
                   val (Inp var) = eval var V.empty
-                  val (Inv var) = eval var V.empty
+                  val (Inv var) = complement $ eval var V.empty
 
     invert (Dag dag) invs = Dag (map invertNode dag) where
         invertNode (a, b) = (invOne a, invOne b)
         invOne (N x) = N x
-        invOne (Inp x) = Inv x
-        invOne (Inv x) = Inp x
+        invOne (Inp x) = if x `elem` invs then Inv x else Inp x
+        invOne (Inv x) = if x `elem` invs then Inp x else Inv x
 
     permute (Dag dag) perm = Dag (map permuteNode dag) where
         permuteNode (a, b) = (permOne a, permOne b)
@@ -55,3 +58,23 @@ instance GenvEvaluable (Dag Var) where
         permOne (Inp x) = Inp $ permute x perm
         permOne (Inv x) = Inv $ permute x perm
 
+instance ToJSON (DagNode Var) where
+    toJSON (N x)   = object ["t" .= ("N"   :: String), "v" .= x]
+    toJSON (Inp v) = object ["t" .= ("Inp" :: String), "v" .= v]
+    toJSON (Inv v) = object ["t" .= ("Inv" :: String), "v" .= v]
+
+instance FromJSON (DagNode Var) where
+    parseJSON = withObject "DagNode" $ \o -> do
+        t <- o .: "t"
+        case t of
+            ("N"::String)   -> N <$> o   .: "v"
+            "Inp"           -> Inp <$> o .: "v"
+            "Inv"           -> Inv <$> o .: "v"
+            _               -> fail "Invalid DagNode"
+
+
+instance ToJSON (Dag Var) where
+    toJSON (Dag dag) = toJSON dag
+
+instance FromJSON (Dag Var) where
+    parseJSON = withArray "Dag" $ \a -> Dag <$> mapM parseJSON (V.toList a)

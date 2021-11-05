@@ -26,6 +26,11 @@ executable coursework2
     -- other-extensions:
     build-depends:    base,
                       vector,
-                      vector-algorithms
+                      vector-algorithms,
+                      aeson,
+                      text-replace,
+                      text,
+                      bytestring
+
     hs-source-dirs:   src
     default-language: Haskell2010

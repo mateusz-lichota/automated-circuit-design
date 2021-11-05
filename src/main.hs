@@ -12,6 +12,9 @@ import Data.Vector (Vector)
 
 import Numeric (showHex)
 
+import Data.Aeson
+import Data.Text.Lazy.IO as I
+import qualified Data.ByteString.Lazy as B
 
 import qualified Data.Vector.Algorithms.Intro as V (sort, sortBy)
 
@@ -19,6 +22,8 @@ import Dags (genDags, Dag (Dag), DagNode (N, Inp, Inv))
 import Specs (allb4nums, spec, cost)
 import Exps
 import CommonTypes
+import Data.Aeson.Text (encodeToLazyText)
+import Control.Exception (allowInterrupt)
 
 
 allCombs :: VarEnv
@@ -31,7 +36,7 @@ applyFunc f [a,b,c,d] = 0xFFFF .&. Prelude.foldl1 (.|.) [if testBit f (15 - lvl 
            shift (a .&. bit i) (3-i) .|.
            shift (b .&. bit i) (2-i) .|.
            shift (c .&. bit i) (1-i) .|.
-           shift (d .&. bit i) (0-i)
+           shift (d .&. bit i) ( -i)
 applyFunc f _ = error "error"
 
 
@@ -307,23 +312,37 @@ dagToExp (Dag d) = f size
         g (Inv v) = Not (Var v)
         size = length d
 
-main :: IO ()
-main = do
-    let numGates = 4
+every n xs = case drop (n-1) xs of
+              y : ys -> y : every n ys
+              [] -> []
 
-    -- let allDags = genDags allVars numGates
-    let allDags = concat [genDags allVars ng | ng <- [1..numGates]]
-    let exps = map dagToExp allDags
 
-    let rs1 = combineResults $ map (curry allResults numGates) exps
-    let rs = augmentWithInputInversions rs1
+createResultDatabase = do 
+    let smallDags = concat [zip (repeat ng) (genDags allVars ng) | ng <- [1..4]]
+    print $ length smallDags
+    let dags5 = zip (repeat 5) $ every 10 $ genDags allVars 5
+    print $ length dags5
+    let dags6 = zip (repeat 6) $ every 170 $ genDags allVars 6
+    print $ length dags6
+    let dags7 = zip (repeat 7) $ every 3000 $ genDags allVars 7
+    print $ length dags7
+    let dags8 = zip (repeat 8) $ every 3000000 $ genDags allVars 8
+    print $ length dags8
 
+    let dags = concat [smallDags, dags5, dags6, dags7, dags8]
+
+    let rs = combineResults $ map allResults dags
     print $ V.length rs
+    
+    let rs2 = augmentWithInputInversions rs
 
-    putStrLn $ show (length allDags) ++ " dags in total"
+    print $ V.length rs2
 
-    -- let testRes = map (candidateCost rs) allb4nums
-
+    I.writeFile "rs_dump.json" (encodeToLazyText rs2)
+    
+    
+testAllCandidates :: Vector (CircuitInfo (Dag Var)) -> IO()
+testAllCandidates rs = do
     let allSpecExps = map spec allb4nums
 
     let successes = mapMaybe (optimalCircuit rs) allSpecExps
@@ -334,3 +353,45 @@ main = do
     let totalCost = sum $ map snd successes
 
     print $ fromIntegral totalCost /  fromIntegral no
+
+
+
+circuitToTikzGraph :: Circuit (Dag Var) -> String
+circuitToTikzGraph (Dag dag, gEnv) = dagNodesDescr ++ invertionsDescr ++ dagEdgesDescr 
+    where 
+        size = length dag
+
+        dagNodesDescr :: String
+        dagNodesDescr = concatMap h (zip [size, size-1..(-1)] (V.toList gEnv))
+            where h (i, g) = helper (N i) ++ " [" ++ show (gEnv V.! (i - 1)) ++ " gate US, draw],\n"
+
+        helper :: DagNode Var -> String
+        helper (N i) = "N" ++ show i
+        helper (Inp v) = show v
+        helper (Inv v) = show v ++ "'"
+
+        invertionsDescr :: String
+        invertionsDescr = concatMap (\v -> show v ++ " -> " ++ show v ++ "' [not gate US, draw],\n") allInvertions
+
+        allInvertions :: [Var]
+        allInvertions = nub $ concatMap (\(v1, v2) -> h v1 ++ h v2) dag
+            where h (Inv x) = [x]
+                  h _ = []
+
+
+        dagEdgesDescr :: String
+        dagEdgesDescr = concatMap h (zip [size, size-1..(-1)] dag)
+            where h (i, (v1, v2)) = helper v1 ++ " -> " ++ helper (N i) ++ ",\n"
+                                 ++ helper v2 ++ " -> " ++ helper (N i) ++ ",\n" 
+main :: IO ()
+main = do
+    -- createResultDatabase
+
+    bs <- B.readFile "rs_dump.json"
+    let rs = fromJust (decode bs) :: Vector (CircuitInfo (Dag Var))
+
+    let (_, circ, _) = rs V.! 3001
+
+    print circ
+
+    Prelude.putStrLn $ circuitToTikzGraph circ
