@@ -3,3 +3,6 @@ src/main
 **/*.o
 dist-newstyle
 spec.pdf
+
+writeup/*
+!writeup/main.tex

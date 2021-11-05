@@ -1,0 +1,68 @@
+\documentclass[12pt]{article}
+\usepackage[left=3cm,right=3cm,top=2cm,bottom=2cm]{geometry} % page settings
+\usepackage{amsmath} % provides many mathematical environments & tools
+\newtheorem{theorem}{Theorem}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{titlesec}
+
+\usepackage{tikz}
+\usetikzlibrary{graphdrawing,graphs} 
+\usegdlibrary {layered}
+
+\usetikzlibrary{arrows,shapes.gates.logic.US,shapes.gates.logic.IEC,calc}
+
+\tikzset{
+  -|-/.style={
+    to path={
+      (\tikztostart) -| ($(\tikztostart)!#1!(\tikztotarget)$) |- (\tikztotarget)
+      \tikztonodes
+    }
+  }
+}
+
+
+\begin{document}
+
+
+\title{\large \textbf{Introduction to Computer Systems Coursework 2 \\ 
+\vspace{0.5em}
+\large Combinatorial Circuit Design}}
+
+
+\author{Mateusz Lichota}
+\date{\today}
+\maketitle
+
+As per the list supplied on CATe my number is $204_{10}$, which is $3030$ in base four.
+
+Looking it up in the table I obtained the following specification for my circuit:
+
+% spec table here
+
+From this specification a truth table can be constructed:
+
+% truth table here
+
+The corresponding Karnaugh map is:
+
+% karnaugh map here
+
+
+\begin{tikzpicture}
+
+    \graph[
+        layered layout,
+        grow=right, 
+        component direction=down,
+        level distance=2cm,
+        component order=decreasing node number,
+    ] {
+        { [same layer] C1, C0, A, B };
+
+        %GRAPH
+    };
+
+\end{tikzpicture}
+
+\end{document}
