@@ -36,7 +36,7 @@ latexTruthTable b4@(d3, d2, d1, d0) = unlines b
             "1     &  1    &  1  &  1  & "]
 
 circuitToTikzGraph :: Circuit (Dag Var) -> String
-circuitToTikzGraph (Dag dag, gEnv) = dagNodesDescr ++ invertionsDescr ++ dagEdgesDescr
+circuitToTikzGraph (Dag dag, gEnv) = dagNodesDescr ++ invertionsDescr ++ dagEdgesDescr ++ "N" ++ show size ++ " -> R\n"
     where
         size = length dag
 
