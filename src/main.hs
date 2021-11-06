@@ -338,15 +338,13 @@ createResultDatabase = do
 
     let dags = concat [smallDags, dags5, dags6, dags7, dags8]
 
-    let rs = combineResults $ map allResults dags6
+    let rs = combineResults $ map allResults dags
     print $ V.length rs
-
-    print $ optimalCircuit rs (spec (allb4nums !! 125))
 
     let rs2 = augmentWithInputInversions rs
 
     print $ V.length rs2
-
+    testAllCandidates rs2
     I.writeFile "rs_dump.json" (encodeToLazyText rs2)
 
 
@@ -421,17 +419,17 @@ main = do
     bs <- B.readFile "rs_dump.json"
     let rs = fromJust (decode bs) :: Vector (CircuitInfo (Dag Var))
 
-    let decNum = 125
+    print $ V.length rs
+
+    testAllCandidates rs
+
+    let decNum = 56
     let num@(d3, d2, d1, d0) = allb4nums !! decNum
     let numShow = show d3 ++ show d2 ++ show d1 ++ show d0
     let specExp = spec num
 
 
     let (circ, cost) = fromJust $ optimalCircuit rs specExp
-
-    print $ eval specExp V.empty
-
-    print $ uncurry eval circ
 
     let specTable = I.pack $ latexSpecTable num
     let truthTable = I.pack $ latexTruthTable num
