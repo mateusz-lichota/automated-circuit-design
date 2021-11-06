@@ -290,11 +290,13 @@ combineResults rs = V.fromList $ remDup sorted
         remDup (x@(a1,_,_):y@(a2,_,_):xs) = if a1 == a2 then remDup (x : xs) else x : remDup (y:xs)
 
 
-optimalCircuit :: Vector (CircuitInfo a) -> Exp -> Maybe (Circuit a, Cost)
+optimalCircuit :: (GenvEvaluable a) => Vector (CircuitInfo a) -> Exp -> Maybe (Circuit a, Cost)
 optimalCircuit rs exp = maybeCirc where
-    maybeCirc = (\(_, circ, cost) -> Just (circ, cost)) =<< maybeCI
+    maybeCirc = (\(_, circ, cost) -> Just (origPerm circ, cost)) =<< maybeCI
     maybeCI = listToMaybe $ V.toList $ V.filter (\(fid, _, _) -> fid == origCan) rs
     origCan = canonize (eval exp V.empty)
+
+    origPerm (dag, gEnv) = (permute dag (retrieveP (eval dag gEnv) (eval exp V.empty)), gEnv)
 
 
 
@@ -323,29 +325,29 @@ every n xs = case drop (n-1) xs of
 
 
 createResultDatabase = do
-    -- let smallDags = concat [zip (repeat ng) (genDags allVars ng) | ng <- [1..4]]
-    -- print $ length smallDags
-    -- let dags5 = zip (repeat 5) $ every 10 $ genDags allVars 5
-    -- print $ length dags5
+    let smallDags = concat [zip (repeat ng) (genDags allVars ng) | ng <- [1..4]]
+    print $ length smallDags
+    let dags5 = zip (repeat 5) $ every 10 $ genDags allVars 5
+    print $ length dags5
     let dags6 = zip (repeat 6) $ every 170 $ genDags allVars 6
     print $ length dags6
-    -- let dags7 = zip (repeat 7) $ every 3000 $ genDags allVars 7
-    -- print $ length dags7
-    -- let dags8 = zip (repeat 8) $ every 3000000 $ genDags allVars 8
-    -- print $ length dags8
+    let dags7 = zip (repeat 7) $ every 3000 $ genDags allVars 7
+    print $ length dags7
+    let dags8 = zip (repeat 8) $ every 3000000 $ genDags allVars 8
+    print $ length dags8
 
-    -- let dags = concat [smallDags, dags5, dags6, dags7, dags8]
+    let dags = concat [smallDags, dags5, dags6, dags7, dags8]
 
     let rs = combineResults $ map allResults dags6
     print $ V.length rs
 
     print $ optimalCircuit rs (spec (allb4nums !! 125))
 
-    -- let rs2 = augmentWithInputInversions rs
+    let rs2 = augmentWithInputInversions rs
 
-    print $ V.length rs
+    print $ V.length rs2
 
-    I.writeFile "rs_dump.json" (encodeToLazyText rs)
+    I.writeFile "rs_dump.json" (encodeToLazyText rs2)
 
 
 testAllCandidates :: Vector (CircuitInfo (Dag Var)) -> IO()
@@ -415,7 +417,7 @@ makeDigisimGraph num (Dag dag, gEnv) = header ++ dagNodesDescr ++ footer   where
 
 main :: IO ()
 main = do
-    -- createResultDatabase
+    createResultDatabase
     bs <- B.readFile "rs_dump.json"
     let rs = fromJust (decode bs) :: Vector (CircuitInfo (Dag Var))
 
@@ -431,19 +433,19 @@ main = do
 
     print $ uncurry eval circ
 
-    -- let specTable = I.pack $ latexSpecTable num
-    -- let truthTable = I.pack $ latexTruthTable num
-    -- let graph = I.pack $ circuitToTikzGraph circ
+    let specTable = I.pack $ latexSpecTable num
+    let truthTable = I.pack $ latexTruthTable num
+    let graph = I.pack $ circuitToTikzGraph circ
 
-    -- texFile <- I.readFile "writeup/main.tex"
+    texFile <- I.readFile "writeup/main.tex"
 
-    -- let r1 = I.replace (I.pack "%GRAPH") graph texFile 
-    -- let r2 = I.replace (I.pack "%TRUTHTABLE") truthTable r1 
-    -- let r3 = I.replace (I.pack "%SPECTABLE") specTable r2 
-    -- let r4 = I.replace (I.pack "DECNUM") (I.pack $ show decNum) r3 
-    -- let r5 = I.replace (I.pack "B4NUM") (I.pack numShow) r4
-    -- let r6 = I.replace (I.pack "TOTALCOST") (I.pack $ show cost) r5
+    let r1 = I.replace (I.pack "%GRAPH") graph texFile 
+    let r2 = I.replace (I.pack "%TRUTHTABLE") truthTable r1 
+    let r3 = I.replace (I.pack "%SPECTABLE") specTable r2 
+    let r4 = I.replace (I.pack "DECNUM") (I.pack $ show decNum) r3 
+    let r5 = I.replace (I.pack "B4NUM") (I.pack numShow) r4
+    let r6 = I.replace (I.pack "TOTALCOST") (I.pack $ show cost) r5
 
-    -- I.writeFile "writeup/filled.tex" r6
-    -- I.writeFile "hardware.txt" (I.pack $ makeDigisimGraph decNum circ)
+    I.writeFile "writeup/filled.tex" r6
+    I.writeFile "hardware.txt" (I.pack $ makeDigisimGraph decNum circ)
 
