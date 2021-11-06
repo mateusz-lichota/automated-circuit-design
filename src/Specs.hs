@@ -53,21 +53,6 @@ spec11 Q1 = BinApp Or (Not (Var A)) (Var B)
 spec11 Q2 = BinApp Or (Var A)       (Not (Var B))
 spec11 Q3 = BinApp Or (Not (Var A)) (Not (Var B))
 
-
-specTable :: B4num -> [[String]]
-specTable (d3, d2, d1, d0) =
-    [
-        [     "Digits "     ,"C_1","C_2",     "Output"    ],
-        ["D_3 = " ++ show d3," 0 "," 0 ", show (spec00 d3)],
-        ["D_2 = " ++ show d2," 0 "," 1 ", show (spec01 d2)],
-        ["D_1 = " ++ show d1," 1 "," 0 ", show (spec10 d1)],
-        ["D_0 = " ++ show d0," 1 "," 1 ", show (spec11 d0)]
-    ]
-
-ppTable :: [[String]] -> String
-ppTable t = unlines $ map (intercalate " | ") t
-
-
 cost :: Gate -> Cost
 cost And = 6
 cost Nand = 4

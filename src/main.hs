@@ -14,16 +14,22 @@ import Numeric (showHex)
 
 import Data.Aeson
 import Data.Text.Lazy.IO as I
+import qualified Data.Text.Lazy as I
+
+
 import qualified Data.ByteString.Lazy as B
 
 import qualified Data.Vector.Algorithms.Intro as V (sort, sortBy)
 
 import Dags (genDags, Dag (Dag), DagNode (N, Inp, Inv))
-import Specs (allb4nums, spec, cost)
+import Specs (allb4nums, spec, cost, spec00, spec10, spec11, spec01)
 import Exps
 import CommonTypes
 import Data.Aeson.Text (encodeToLazyText)
 import Control.Exception (allowInterrupt)
+
+import Latex ( latexTruthTable, circuitToTikzGraph, latexSpecTable )
+
 
 
 allCombs :: VarEnv
@@ -184,8 +190,7 @@ scheme4_10 = (10, Repl 10
           r6 = Repl 6 r5 r2
 
 
-type Circuit a = (a, GateEnv)
-type CircuitInfo a = (FuncId, Circuit a, Cost)
+
 
 toExp :: Circuit Exp -> Exp
 toExp (exp, gEnv) = r exp
@@ -317,30 +322,32 @@ every n xs = case drop (n-1) xs of
               [] -> []
 
 
-createResultDatabase = do 
-    let smallDags = concat [zip (repeat ng) (genDags allVars ng) | ng <- [1..4]]
-    print $ length smallDags
-    let dags5 = zip (repeat 5) $ every 10 $ genDags allVars 5
-    print $ length dags5
+createResultDatabase = do
+    -- let smallDags = concat [zip (repeat ng) (genDags allVars ng) | ng <- [1..4]]
+    -- print $ length smallDags
+    -- let dags5 = zip (repeat 5) $ every 10 $ genDags allVars 5
+    -- print $ length dags5
     let dags6 = zip (repeat 6) $ every 170 $ genDags allVars 6
     print $ length dags6
-    let dags7 = zip (repeat 7) $ every 3000 $ genDags allVars 7
-    print $ length dags7
-    let dags8 = zip (repeat 8) $ every 3000000 $ genDags allVars 8
-    print $ length dags8
+    -- let dags7 = zip (repeat 7) $ every 3000 $ genDags allVars 7
+    -- print $ length dags7
+    -- let dags8 = zip (repeat 8) $ every 3000000 $ genDags allVars 8
+    -- print $ length dags8
 
-    let dags = concat [smallDags, dags5, dags6, dags7, dags8]
+    -- let dags = concat [smallDags, dags5, dags6, dags7, dags8]
 
-    let rs = combineResults $ map allResults dags
+    let rs = combineResults $ map allResults dags6
     print $ V.length rs
-    
-    let rs2 = augmentWithInputInversions rs
 
-    print $ V.length rs2
+    print $ optimalCircuit rs (spec (allb4nums !! 125))
 
-    I.writeFile "rs_dump.json" (encodeToLazyText rs2)
-    
-    
+    -- let rs2 = augmentWithInputInversions rs
+
+    print $ V.length rs
+
+    I.writeFile "rs_dump.json" (encodeToLazyText rs)
+
+
 testAllCandidates :: Vector (CircuitInfo (Dag Var)) -> IO()
 testAllCandidates rs = do
     let allSpecExps = map spec allb4nums
@@ -355,15 +362,41 @@ testAllCandidates rs = do
     print $ fromIntegral totalCost /  fromIntegral no
 
 
+digiShow :: Gate -> String
+digiShow And = "AND"
+digiShow Nand = "NAND"
+digiShow Or = "OR"
+digiShow Xor = "XOR"
+digiShow Nor = "NOR"
+digiShow Xnor = "XNOR"
 
-circuitToTikzGraph :: Circuit (Dag Var) -> String
-circuitToTikzGraph (Dag dag, gEnv) = dagNodesDescr ++ invertionsDescr ++ dagEdgesDescr 
-    where 
+
+makeDigisimGraph :: Int -> Circuit (Dag Var) -> String
+makeDigisimGraph num (Dag dag, gEnv) = header ++ dagNodesDescr ++ footer   where
         size = length dag
 
+        (d3, d2, d1, d0) = allb4nums !! num
+        header = "// AUTOMATICALLY GENERATED, DO NOT EDIT\n"
+               ++"// My solution to the Hardware Coursework.\n"
+               ++"// My number is " ++ show num ++ " or " ++ show d3 ++ show d2 ++ show d1 ++ show d0 ++ " in base 4.\n"
+               ++"// My functions are: (00)= " ++ show (spec00 d3) ++ "  (01)= " ++ show (spec01 d2) ++ "  (10)= " ++ show (spec10 d1) ++ "  (11)= " ++ show (spec11 d0) ++ "\n"
+               ++"<circuit>\n"
+               ++"<number>" ++ show num ++ "</number>\n"
+               ++"<inputs>  C1 C0 A B  </inputs>\n"
+               ++"<outputs>  N" ++ show size ++  "  </outputs>\n"
+               ++"<gates>\n"
+
+        footer = "</gates>\n</circuit>\n"
+
         dagNodesDescr :: String
-        dagNodesDescr = concatMap h (zip [size, size-1..(-1)] (V.toList gEnv))
-            where h (i, g) = helper (N i) ++ " [" ++ show (gEnv V.! (i - 1)) ++ " gate US, draw],\n"
+        dagNodesDescr = concatMap h (zip [size, size-1..(-1)] dag)
+            where h (i, (v1, v2)) = "    "
+                                 ++ digiShow (gEnv V.! (i - 1)) 
+                                 ++ "(N" ++ show i ++ ", " 
+                                 ++ helper v1 
+                                 ++ ", " 
+                                 ++ helper v2
+                                 ++")\n"
 
         helper :: DagNode Var -> String
         helper (N i) = "N" ++ show i
@@ -371,7 +404,7 @@ circuitToTikzGraph (Dag dag, gEnv) = dagNodesDescr ++ invertionsDescr ++ dagEdge
         helper (Inv v) = show v ++ "'"
 
         invertionsDescr :: String
-        invertionsDescr = concatMap (\v -> show v ++ " -> " ++ show v ++ "' [not gate US, draw],\n") allInvertions
+        invertionsDescr = concatMap (\v -> "    INVERTER(" ++ show v ++ "', " ++ show v ++ ")\n") allInvertions
 
         allInvertions :: [Var]
         allInvertions = nub $ concatMap (\(v1, v2) -> h v1 ++ h v2) dag
@@ -379,19 +412,38 @@ circuitToTikzGraph (Dag dag, gEnv) = dagNodesDescr ++ invertionsDescr ++ dagEdge
                   h _ = []
 
 
-        dagEdgesDescr :: String
-        dagEdgesDescr = concatMap h (zip [size, size-1..(-1)] dag)
-            where h (i, (v1, v2)) = helper v1 ++ " -> " ++ helper (N i) ++ ",\n"
-                                 ++ helper v2 ++ " -> " ++ helper (N i) ++ ",\n" 
+
 main :: IO ()
 main = do
     -- createResultDatabase
-
     bs <- B.readFile "rs_dump.json"
     let rs = fromJust (decode bs) :: Vector (CircuitInfo (Dag Var))
 
-    let (_, circ, _) = rs V.! 3001
+    let decNum = 125
+    let num@(d3, d2, d1, d0) = allb4nums !! decNum
+    let numShow = show d3 ++ show d2 ++ show d1 ++ show d0
+    let specExp = spec num
 
-    print circ
 
-    Prelude.putStrLn $ circuitToTikzGraph circ
+    let (circ, cost) = fromJust $ optimalCircuit rs specExp
+
+    print $ eval specExp V.empty
+
+    print $ uncurry eval circ
+
+    -- let specTable = I.pack $ latexSpecTable num
+    -- let truthTable = I.pack $ latexTruthTable num
+    -- let graph = I.pack $ circuitToTikzGraph circ
+
+    -- texFile <- I.readFile "writeup/main.tex"
+
+    -- let r1 = I.replace (I.pack "%GRAPH") graph texFile 
+    -- let r2 = I.replace (I.pack "%TRUTHTABLE") truthTable r1 
+    -- let r3 = I.replace (I.pack "%SPECTABLE") specTable r2 
+    -- let r4 = I.replace (I.pack "DECNUM") (I.pack $ show decNum) r3 
+    -- let r5 = I.replace (I.pack "B4NUM") (I.pack numShow) r4
+    -- let r6 = I.replace (I.pack "TOTALCOST") (I.pack $ show cost) r5
+
+    -- I.writeFile "writeup/filled.tex" r6
+    -- I.writeFile "hardware.txt" (I.pack $ makeDigisimGraph decNum circ)
+

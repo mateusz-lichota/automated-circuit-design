@@ -5,6 +5,7 @@
 \usepackage{amsfonts}
 \usepackage{amssymb}
 \usepackage{titlesec}
+\usepackage{multirow}
 
 \usepackage{tikz}
 \usetikzlibrary{graphdrawing,graphs} 
@@ -12,18 +13,7 @@
 
 \usetikzlibrary{arrows,shapes.gates.logic.US,shapes.gates.logic.IEC,calc}
 
-\tikzset{
-  -|-/.style={
-    to path={
-      (\tikztostart) -| ($(\tikztostart)!#1!(\tikztotarget)$) |- (\tikztotarget)
-      \tikztonodes
-    }
-  }
-}
-
-
 \begin{document}
-
 
 \title{\large \textbf{Introduction to Computer Systems Coursework 2 \\ 
 \vspace{0.5em}
@@ -34,20 +24,153 @@
 \date{\today}
 \maketitle
 
-As per the list supplied on CATe my number is $204_{10}$, which is $3030$ in base four.
+\section {Problem specification}
+As per the list supplied on CATe my number is $DECNUM_{10}$, which is $B4NUM$ in base four.
 
 Looking it up in the table I obtained the following specification for my circuit:
 
-% spec table here
+\begin{table}[h]
+  \centering
+  \begin{tabular}{|c|c|c|c|}
+  \hline  
+  
+  %SPECTABLE
+
+  \end{tabular}
+\end{table}
 
 From this specification a truth table can be constructed:
 
-% truth table here
+\begin{table}[h]
+  \centering
+\begin{tabular}{|c|c|c|c|c|c|}
+  \hline
 
-The corresponding Karnaugh map is:
 
-% karnaugh map here
+  %TRUTHTABLE
 
+
+  \hline
+\end{tabular}
+\end{table}
+
+Now, while I could use a Karnaugh map to represent the truth table, and find a circuit implementing it,
+the produced circuit would (A) only minimize the total number of logic gates, instead of considering
+the actual relative sizes of the gates, and (B) would not even be close to optimal even in terms of the
+number of gates used. Therefore, instead of using a Karnaugh map I decided to implement a MASSIVE brute
+force search program in haskell to find a circuit close to optimal for my specification.
+
+\section {Brute force search}
+
+\subsection { The search space }
+When conducting a brute force search it is important to precisely describe the search space.
+Here we are looking for a cost-minimizing circuit consisting of a number of 2-input, 1-output logic gates:
+(And, Nand, Or, Nor, Xor, Xnor), and possibly some inverters. This circuit should have 4 inputs: ($C_1$, $C_0$, $A$, $B$) 
+and one output (R). It should also not contain any cycles. The cost of a circuit is defined as the total size of
+all the logic gates the circuit uses, as per the table supplied in the exercise specification:
+
+\begin{table}[h]
+  \centering
+  \begin{tabular}{|c|c|}
+  \hline  
+  
+  Gate & Nominal Size \\
+  \hline
+  INVERTER & 3 \\
+  NAND, NOR & 4 \\
+  AND, OR & 6 \\
+  XOR, XNOR & 8 \\
+  \hline
+
+  \end{tabular}
+\end{table}
+
+\subsection {The use of inverters}
+Since the set of all gates that we are going to be using is
+closed under output inversion, using an inverter on the output of some gate will always be
+more expensive than using the output-inverted gate (e.g. inverting the output of a NAND gate costs
+3+4=7, but simply using an AND gate costs 6). Therefore, the only way it might make sense to use
+inverters is to invert one of the inputs (e.g. $C_0$) straight away. This is the first place where
+I cut corners: in order to restrict the problem to 2-input gates I would have to treat every inverted
+input as an essentially separate input, thus making the nubmer of inputs to the circuit variable.
+Henc, I've decided to only ever either not invert an input, or invert it straight away and not use the
+uninverted input at all. This way we always have four inputs, each of which is either inverted or not.
+
+\subsection { Treating circuits as DAGs}
+
+Formally, our circuit is a directed acyclic graph (DAG) with the following properties:
+\begin {itemize}
+  \item There are four source nodes with indegree 0 - the (possibly inverted) inputs.
+  \item There is exactly one sink node with outdegree 0 and indegree 2 - the last gate.
+  \item All other nodes have indegree 2 and outdegree 1 - the remaining gates.
+\end {itemize}
+
+Obviously, there is an infinite number of such DAGs, as they could be arbitrarily large. However,
+graphs with a large number of nodes (logic gates) are not likely to be optimal (as each gate has a positive cost).
+Furthermore, the experiments the I describe later show that exhaustively searching all n-gate circuits
+is only feasible for $n<=6$, which sort of settles the issue of how far to search for me.
+
+ 
+\subsection { Generating circuits }
+
+In order to generate all circuits I first generate all generic DAGs with the properties described
+above, and then I create all circuits based on every single DAG by substituting all nodes with every
+possible combination of gates. 
+
+\subsubsection {Generating DAGs}
+
+In order to generate all n-gate DAGs I devised a recursive algorithm. The algorithm is as follows:
+
+\begin {enumerate}
+  \item Assume that we have four input nodes ($C_1, C_0, A, B$), and $n$ 'gate' nodes \\ ($N_1, N_2, \ldots, N_n$),
+  which are sorted by the order in which they will appear in the topological sort of the completed graph.
+  
+  \item Start from node $N_n$. Assume we are given a list of all nodes $N_j : j < n$ which are not yet used as
+  inputs to another nodes. Generate all possible pairs of inputs to $N_n$. Those pairs can be unordered, 
+  since all gates we are using are input-permutation-invariant. The elements of the pair can be $C_1 C0, A, B$ or
+  any of the nodes $N_1, \ldots N_{n-1}$. If the node $N_{n-1}$ is unused, it has to be one of the inputs to $N_n$,
+  so it has to be an element of all of the generated pairs.
+
+  \item For each pair of inputs to $N_n$, call the algorithm recursively on $N_{n-1}$, supplying the list of unused
+  nodes with the two elements of the pair removed.
+\end{enumerate}
+
+This is not an algorithm coursework, so the description of the algorithm given here is not super precise and doesn't
+include any edge cases or optimizations, but the actual haskell program implementing this algorithm is available on my github,
+and I have verified that it indeed generates all n-gate DAGs for $n <= 4$ manually.
+
+\subsection {Generating circuits from DAGs}
+
+Given a generic n-gate DAG we can generate $6^n$ circuits by substituting all nodes with every possible combination of the 
+6 gates we are using. Remember, this has to be done for all possible DAGs, the number of which grows super-exponentially with $n$.
+Therefore, heavy optimization is needed to be able to complete a search in a reasonable amount of time.
+
+\subsection {Mathematically optimizing the search}
+
+There are $2^{2^4}$ possible 4-input, 1-output boolean functions. However, some of these are equivalent to each other under
+permutation of input, which we can achieve at zero cost by just connecting the inputs to our circuit in a different way. Hence,
+we can find any circuit that implements a function that is equivalent to the one we want under permutation of inputs. Let 
+$P(f)$ be the lexicographically smallest truth table of a function equivalent to $f$ under permutation of inputs. All functions
+that produce the same $P(f)$ are said to belong to a $P$-equivalence class. By exhaustively listing the $P$ of all  $2^{2^4}$ 
+4-input boolean functions I've found that there are 3984 $P$-equivalence classes. I've verified the correctness of this by
+reading some random paper I found on the internet (Correia, Vinícius P., and André I. Reis. "Classifying n-input Boolean functions." Proc. IWS 2001 (2001).)
+
+\subsection {Actually conducting the search}
+
+After generating all the possible n-gate circuits for $n <= 6$, and adding a few cherry-picked 8-gate circuits,
+I evaluate each of them on all possible input combinations by using some clever
+bit tricks taught in this course (doing bitwise operations on integers instead of using boolean operators, and taking
+$C_1 = \text{0x00FF}, C_0 = \text{0x0F0F}, A = \text{0x3333}, B = \text{0x5555}$ to obtain all output combinations). Then I find the P of each circuit, and
+find the lowest cost circuit in each of the $P$-equivalence classes which were found.
+
+Up untill now I haven't generated any circuits using inverters. Now, having found the optimal circuit for all $P$-equivalence 
+classes, I can test all 16 possible input-inversion combinations for the lowest-cost circuits implementing them, and check if any of 
+the produced functions has a smaller cost than the previously-known lowest-cost representative of its P-equivalence class.
+
+In the end, to obtain the final result I find the $P$ of the function I was supposed to implement, and look up the lowest
+cost circuit implementing one of the permutation-equivalent functions, which in this case is:
+
+\begin{center}
 
 \begin{tikzpicture}
 
@@ -55,8 +178,9 @@ The corresponding Karnaugh map is:
         layered layout,
         grow=right, 
         component direction=down,
-        level distance=2cm,
-        component order=decreasing node number,
+        level distance=2.5cm,
+        tail anchor=0,
+        head anchor=180,
     ] {
         { [same layer] C1, C0, A, B };
 
@@ -64,5 +188,16 @@ The corresponding Karnaugh map is:
     };
 
 \end{tikzpicture}
+
+\end{center}
+
+With a total cost of TOTALCOST. By the way, I'm sorry if the graph looks a bit weird -- it is automatically generated
+and I couldn't find a way to make the connections orthogonal. In fact, all of this document is automatically
+generated by the same haskell program which conducts the search, parametrized only by the unique nubmer
+assigned to me in the supplied .csv file. This means that a pdf with a close-to-optimal solution to the
+whole coursework can be generated for any student from the cohort in a matter of seconds. Ain't that cool?
+In fact, I went ahead and attached as an appendix the pdf generated for the unique number used as an example in the specification -- 125.
+In the example given the lowest cost circuit found had a cost of 60. 
+In the solution I automatically generated the cost is 36, which is 40\% less, and uses only 6 gates instead of 11.
 
 \end{document}

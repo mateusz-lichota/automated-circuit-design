@@ -6,3 +6,9 @@ spec.pdf
 
 writeup/*
 !writeup/main.tex
+
+*.json
+
+Digisim
+
+hardware.txt

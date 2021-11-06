@@ -14,7 +14,6 @@ type Cost = Int
 type FuncId = Int
 
 
-
 data Var = A | B | C1 | C0 deriving (Show, Eq)
 allVars = [C1, C0, A, B]
 
@@ -52,6 +51,10 @@ instance Ord Gate where
     compare x y = EQ
 
 allGates = V.fromList [And, Nand, Or, Nor, Xor, Xnor]
+
+
+type Circuit a = (a, GateEnv)
+type CircuitInfo a = (FuncId, Circuit a, Cost)
 
 
 class GenvEvaluable a where
