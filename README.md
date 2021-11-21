@@ -1,6 +1,6 @@
 # Automated circuit design
 
-A haskell program generating optimized circuits for Imperial Computing 40007 coursework 2 - combinatorial circuit design.
+A haskell program generating optimized circuits for Imperial Computing 40001 coursework 2 - combinatorial circuit design.
 It can also output Digisim hardware.txt specification files, and LuaLaTeX code for a writeup document with a circuit diagram.
 
 
