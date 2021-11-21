@@ -348,6 +348,8 @@ createResultDatabase = do
     I.writeFile "rs_dump.json" (encodeToLazyText rs2)
 
 
+-- checks how many of the candidates's circuits are achievable
+-- and computes the average cost of those that are
 testAllCandidates :: Vector (CircuitInfo (Dag Var)) -> IO()
 testAllCandidates rs = do
     let allSpecExps = map spec allb4nums
@@ -362,15 +364,9 @@ testAllCandidates rs = do
     print $ fromIntegral totalCost /  fromIntegral no
 
 
-digiShow :: Gate -> String
-digiShow And = "AND"
-digiShow Nand = "NAND"
-digiShow Or = "OR"
-digiShow Xor = "XOR"
-digiShow Nor = "NOR"
-digiShow Xnor = "XNOR"
 
 
+--- turns a DAG circuit into a Digisim-compatible hardware.txt circuit description
 makeDigisimGraph :: Int -> Circuit (Dag Var) -> String
 makeDigisimGraph num (Dag dag, gEnv) = header ++ dagNodesDescr ++ footer   where
         size = length dag
@@ -398,6 +394,14 @@ makeDigisimGraph num (Dag dag, gEnv) = header ++ dagNodesDescr ++ footer   where
                                  ++ helper v2
                                  ++")\n"
 
+        digiShow :: Gate -> String
+        digiShow And = "AND"
+        digiShow Nand = "NAND"
+        digiShow Or = "OR"
+        digiShow Xor = "XOR"
+        digiShow Nor = "NOR"
+        digiShow Xnor = "XNOR"
+
         helper :: DagNode Var -> String
         helper (N i) = "N" ++ show i
         helper (Inp v) = show v
@@ -412,18 +416,25 @@ makeDigisimGraph num (Dag dag, gEnv) = header ++ dagNodesDescr ++ footer   where
                   h _ = []
 
 
-
 main :: IO ()
 main = do
-    createResultDatabase
+    let decNum = 1 -- enter your decimal number here
+
+
+    -- createResultDatabase --- this had to be run at first to produce rs_dump.json
     bs <- B.readFile "rs_dump.json"
     let rs = fromJust (decode bs) :: Vector (CircuitInfo (Dag Var))
 
-    print $ V.length rs
+    -- this is the total number of P-equivalence classes achievable.
+    -- the maximum is 3984, and the closer to that the better
+    print $ V.length rs 
 
-    testAllCandidates rs
+    -- testAllCandidates rs --- run this to see the average cost of all candidates
 
-    let decNum = 56
+
+    -- this process below generates the filled.tex file, which then has to be compiled
+    -- using lualatex. It **will** error out if other latex compiler is used
+
     let num@(d3, d2, d1, d0) = allb4nums !! decNum
     let numShow = show d3 ++ show d2 ++ show d1 ++ show d0
     let specExp = spec num
